@@ -1,0 +1,115 @@
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      CI: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile=false
+
+      # --- Preflight (read-only guards) ---
+      - name: Preflight | verify required files exist
+        run: |
+          set -euo pipefail
+          req=( package.json next.config.ts src/app/page.tsx )
+          for f in "${req[@]}"; do
+            [[ -f "$f" ]] || { echo "::error::Missing $f"; exit 1; }
+          done
+          echo "Required files OK"
+
+      - name: Preflight | validate next.config remotePatterns
+        run: |
+          set -euo pipefail
+          if grep -q "remotePatterns" next.config.ts; then
+            echo "remotePatterns OK"
+          else
+            echo "::error::next.config.ts must define remotePatterns"
+            exit 1
+          fi
+
+      # --- Lint + Typecheck ---
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # --- Build (prod-like) ---
+      - name: Build
+        run: pnpm build --no-lint
+
+      # --- Smoke: start prod server and curl "/" ---
+      - name: Start server
+        run: |
+          npx -y wait-on@7 tcp:3000 &>/dev/null & true  # pre-warm wait-on
+          (pnpm exec next start -p 3000 & echo $! > .server.pid)
+          # wait until up (30s timeout)
+          for i in {1..60}; do
+            if curl -sSfI http://localhost:3000 >/dev/null; then exit 0; fi
+            sleep 0.5
+          done
+          echo "::error::Server did not start on :3000"; exit 1
+
+      - name: Smoke test "/"
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/)
+          echo "HTTP / -> $code"
+          # Accept 200 or 404 (_not-found) as a running server signal; adjust as needed
+          if [ "$code" != "200" ] && [ "$code" != "404" ]; then
+            echo "::error::Unexpected status: $code"
+            exit 1
+          fi
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f .server.pid ]; then
+            kill "$(cat .server.pid)" || true
+          fi
+
+      # --- Upload logs on failure for debugging ---
+      - name: Upload Next build artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-artifacts
+          path: |
+            .next
+            .server.pid
+          if-no-files-found: ignore

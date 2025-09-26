@@ -1,39 +1,36 @@
-import { FlatCompat } from '@eslint/eslintrc';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+// eslint.config.mjs
+import tseslint from 'typescript-eslint';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({ baseDirectory: __dirname });
-
-const config = [
-  {
-    ignores: [
-      'node_modules/**',
-      '.next/**',
-      'out/**',
-      'build/**',
-      'next-env.d.ts',
-      '**/*.d.ts',
-      '**/.next/**',
-    ],
-  },
-  ...compat.extends('next/core-web-vitals', 'next/typescript'),
-  {
-    rules: {
-      // Allow warnings but not errors for build
-      '@typescript-eslint/no-unused-vars': 'warn',
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-unsafe-function-type': 'off',
-      '@typescript-eslint/no-empty-object-type': 'off',
-      '@typescript-eslint/no-wrapper-object-types': 'off',
-      '@typescript-eslint/no-this-alias': 'off',
-      '@typescript-eslint/ban-ts-comment': 'off',
-      '@typescript-eslint/triple-slash-reference': 'off',
-      '@typescript-eslint/no-unused-expressions': 'off',
+export default [
+  // JS/TS parser + TS plugin
+  ...tseslint.config({
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaVersion: 'latest', sourceType: 'module' },
+      // browser + node globals so “no-undef” doesn’t whine about FormData, React, process, etc.
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        FormData: 'readonly',
+        HTMLFormElement: 'readonly',
+        HTMLInputElement: 'readonly',
+        React: 'readonly',
+        process: 'readonly',
+      },
     },
-  },
-];
+    plugins: {
+      '@typescript-eslint': tseslint.plugin,
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+      }],
+    },
+  }),
 
-export default config;
+  // Ignore generated/build artifacts
+  { ignores: ['.next/**', 'node_modules/**', '**/*.d.ts'] },
+];

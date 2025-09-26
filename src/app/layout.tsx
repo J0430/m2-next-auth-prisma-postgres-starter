@@ -1,19 +1,18 @@
-import type { Metadata } from 'next';
+// app/layout.tsx
+'use client';
+
+import { ReactNode } from 'react';
+import { ChakraProvider } from '@chakra-ui/react';
 import '@/styles/globals.scss';
 
-export const metadata: Metadata = {
-  title: 'M2 Auth & Profiles',
-  description: 'Next.js + Auth.js + Prisma starter',
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
+    <html lang="en">
+      <body>
+        <ChakraProvider>
+          {children}
+        </ChakraProvider>
+      </body>
     </html>
   );
 }

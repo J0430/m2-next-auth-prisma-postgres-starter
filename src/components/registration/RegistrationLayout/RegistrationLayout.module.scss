@@ -1,0 +1,65 @@
+.container {
+  display: flex;
+  width: 920px; /* feel free to tweak (880–980) */
+  height: 540px; /* modal inner height */
+  background: #fff;
+  position: relative;
+
+  @media (max-width: 860px) {
+    width: 100%;
+    height: auto;
+    flex-direction: column;
+  }
+}
+
+.image {
+  position: relative;
+  width: 42%;
+  min-width: 320px;
+  height: 100%;
+  overflow: hidden; /* keep image clipped */
+  isolation: isolate; /* keep pseudo above image */
+  border-bottom-right-radius: 40%;
+  /* Curved “cutout” on the right edge via a white pill overlay */
+
+  @media (max-width: 860px) {
+    display: none; /* hide image on mobile */
+  }
+}
+
+.content {
+  width: 58%;
+  height: 100%;
+  padding: 24px 28px;
+  overflow: auto; /* scroll if form is taller than box */
+
+  @media (max-width: 860px) {
+    width: 100%;
+    height: auto;
+    padding: 20px 16px 24px;
+  }
+}
+
+/* Tabs styling */
+.tabs {
+  :global([role='tablist']) {
+    border-bottom: 1px solid #e6e8eb;
+    margin-bottom: 16px;
+  }
+
+  :global([role='tab']) {
+    font-weight: 600;
+    color: #6b7280;
+  }
+
+  :global([role='tab'][aria-selected='true']) {
+    color: #2563eb;
+    border-bottom: 2px solid #2563eb;
+  }
+}
+
+.panels {
+  :global([role='tabpanel']) {
+    padding: 0; /* handled by form spacing */
+  }
+}
