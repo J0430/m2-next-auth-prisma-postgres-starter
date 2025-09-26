@@ -48,3 +48,6 @@ eslint/
 eslint.config.js
 package.json.bak
 m2-next-auth-prisma-postgres-starter@0.1.0
+
+# editor config
+.vscode/
