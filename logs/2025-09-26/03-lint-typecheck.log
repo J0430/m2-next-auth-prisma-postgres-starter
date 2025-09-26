@@ -1,0 +1,7 @@
+== Lint+Typecheck 16:52:20Z ==
+Running ESLint...
+✓ ESLint OK
+ESLINT_OK: true
+Running TypeScript check...
+✓ TypeScript OK
+TS_OK: true

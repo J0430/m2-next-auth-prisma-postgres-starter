@@ -1,0 +1,187 @@
+== Unified Logs 16:52:45Z ==
+Source: logs/2025-09-26
+
+===== 01-preflight.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+== Preflight 16:52:18Z ==
+✓ Node 20.18.3 OK
+✓ PNPM 9.12.3 OK
+✓ Required files present
+✓ Next.js config OK
+NODE_OK: true
+PNPM_OK: true
+REQUIRED_FILES_OK: true
+NEXT_REMOTE_PATTERNS_OK: true
+--- tail (last 60 lines) ---
+== Preflight 16:52:18Z ==
+✓ Node 20.18.3 OK
+✓ PNPM 9.12.3 OK
+✓ Required files present
+✓ Next.js config OK
+NODE_OK: true
+PNPM_OK: true
+REQUIRED_FILES_OK: true
+NEXT_REMOTE_PATTERNS_OK: true
+
+===== 02-merge.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+== Dry-run Merge 16:52:19Z ==
+✓ No merge conflicts
+MERGE_CONFLICTS: false
+--- tail (last 60 lines) ---
+== Dry-run Merge 16:52:19Z ==
+✓ No merge conflicts
+MERGE_CONFLICTS: false
+
+===== 03-lint-typecheck.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+== Lint+Typecheck 16:52:20Z ==
+Running ESLint...
+✓ ESLint OK
+ESLINT_OK: true
+Running TypeScript check...
+✓ TypeScript OK
+TS_OK: true
+--- tail (last 60 lines) ---
+== Lint+Typecheck 16:52:20Z ==
+Running ESLint...
+✓ ESLint OK
+ESLINT_OK: true
+Running TypeScript check...
+✓ TypeScript OK
+TS_OK: true
+
+===== 04-build-install.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+== Install 16:52:23Z ==
+Environment variables loaded from .env
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+
+> m2-next-auth-prisma-postgres-starter@0.1.0 postinstall /Users/manumurillo/Documents/m2-next-auth-prisma-postgres-starter
+> prisma generate
+
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.16.2) to ./node_modules/.pnpm/@prisma+client@6.16.2_prisma@6.16.2_typescript@5.9.2__typescript@5.9.2/node_modules/@prisma/client in 75ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+Done in 1.6s
+== Build (prod-like) 16:52:25Z ==
+ ⚠ Linting is disabled.
+ ⚠ Linting is disabled.
+   ▲ Next.js 15.5.3
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 3.2s
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/4) ...
+   Generating static pages (1/4) 
+   Generating static pages (2/4) 
+   Generating static pages (3/4) 
+ ✓ Generating static pages (4/4)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      360 B         102 kB
+└ ○ /_not-found                             1 kB         103 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/13702a36-73df3d465ab108ef.js  54.2 kB
+  ├ chunks/861-28827c6f01af5d0b.js       45.8 kB
+  └ other shared chunks (total)          1.89 kB
+
+
+○  (Static)  prerendered as static content
+
+✓ Build OK
+BUILD_OK: true
+--- tail (last 60 lines) ---
+== Install 16:52:23Z ==
+Environment variables loaded from .env
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+
+> m2-next-auth-prisma-postgres-starter@0.1.0 postinstall /Users/manumurillo/Documents/m2-next-auth-prisma-postgres-starter
+> prisma generate
+
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.16.2) to ./node_modules/.pnpm/@prisma+client@6.16.2_prisma@6.16.2_typescript@5.9.2__typescript@5.9.2/node_modules/@prisma/client in 75ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+Done in 1.6s
+== Build (prod-like) 16:52:25Z ==
+ ⚠ Linting is disabled.
+ ⚠ Linting is disabled.
+   ▲ Next.js 15.5.3
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 3.2s
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/4) ...
+   Generating static pages (1/4) 
+   Generating static pages (2/4) 
+   Generating static pages (3/4) 
+ ✓ Generating static pages (4/4)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      360 B         102 kB
+└ ○ /_not-found                             1 kB         103 kB
++ First Load JS shared by all             102 kB
+  ├ chunks/13702a36-73df3d465ab108ef.js  54.2 kB
+  ├ chunks/861-28827c6f01af5d0b.js       45.8 kB
+  └ other shared chunks (total)          1.89 kB
+
+
+○  (Static)  prerendered as static content
+
+✓ Build OK
+BUILD_OK: true
+
+===== 05-smoke.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+== Smoke 16:52:39Z ==
+Starting dev server on port 3000...
+Waiting for server to start...
+ ✓ Starting...
+ ✓ Ready in 1200ms
+Testing / endpoint...
+✓ Smoke OK
+SMOKE_OK: true
+--- tail (last 60 lines) ---
+== Smoke 16:52:39Z ==
+Starting dev server on port 3000...
+Waiting for server to start...
+ ✓ Starting...
+ ✓ Ready in 1200ms
+Testing / endpoint...
+✓ Smoke OK
+SMOKE_OK: true
+
+===== 06-unify.log @ 16:52:45Z =====
+--- head (first 120 lines) ---
+--- tail (last 60 lines) ---
+
+---- SUMMARY ----
+BUILD_OK: true
+ESLINT_OK: true
+MERGE_CONFLICTS: false
+NEXT_REMOTE_PATTERNS_OK: true
+NODE_OK: true
+PNPM_OK: true
+REQUIRED_FILES_OK: true
+SMOKE_OK: true
+TS_OK: true
