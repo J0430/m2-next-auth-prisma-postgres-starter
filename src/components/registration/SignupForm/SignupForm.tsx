@@ -13,8 +13,7 @@ import {
 } from '@chakra-ui/react';
 import type { FormEvent } from "react";
 import { registerUser } from '@/lib/actions';
-
-type SignupFormProps = { onSuccess?: () => void };
+import type { SignupFormProps } from './SignupForm.types';
 
 export default function SignupForm({ onSuccess }: SignupFormProps) {
   const toast = useToast();
