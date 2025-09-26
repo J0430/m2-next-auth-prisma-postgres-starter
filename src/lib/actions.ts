@@ -105,4 +105,4 @@ export async function registerUser(formData: FormData): Promise<ActionResult> {
 // const data: RegisterInput = parsed.data; // strongly typed
 // // data.email is string; data.country is string | undefined; etc.
 
-// This avoids duplicating interfaces and eliminates drift between “what we validate” and “what we think the type is.”
+// This avoids duplicating interfaces and eliminates drift between "what we validate" and "what we think the type is."

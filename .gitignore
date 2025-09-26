@@ -51,3 +51,9 @@ m2-next-auth-prisma-postgres-starter@0.1.0
 
 # editor config
 .vscode/
+
+# ignore logs & ops
+logs/
+*.log
+ops/
+logs2.txt

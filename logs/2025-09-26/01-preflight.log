@@ -1,9 +1,0 @@
-== Preflight 16:52:18Z ==
-✓ Node 20.18.3 OK
-✓ PNPM 9.12.3 OK
-✓ Required files present
-✓ Next.js config OK
-NODE_OK: true
-PNPM_OK: true
-REQUIRED_FILES_OK: true
-NEXT_REMOTE_PATTERNS_OK: true

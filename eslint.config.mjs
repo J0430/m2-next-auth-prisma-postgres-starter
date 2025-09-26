@@ -8,7 +8,7 @@ export default [
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaVersion: 'latest', sourceType: 'module' },
-      // browser + node globals so “no-undef” doesn’t whine about FormData, React, process, etc.
+      // browser + node globals so "no-undef" doesn't whine about FormData, React, process, etc.
       globals: {
         window: 'readonly',
         document: 'readonly',
