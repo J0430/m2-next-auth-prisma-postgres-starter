@@ -10,6 +10,8 @@
 !.yarn/releases
 !.yarn/versions
 
+
+
 # testing
 /coverage
 
@@ -30,9 +32,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-!.env.example
+# env files
+.env
+.env.local
+.env.*.local
+
 
 # vercel
 .vercel
@@ -57,3 +61,5 @@ logs/
 *.log
 ops/
 logs2.txt
+brew/
+

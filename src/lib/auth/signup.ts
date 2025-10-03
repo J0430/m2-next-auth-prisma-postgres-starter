@@ -2,10 +2,9 @@
 
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { RegisterSchema, type RegisterInput } from '@/lib/zodSchemas';
+import { SignUpSchema, type SignUpInput } from '@/lib/schemas/signup';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-
-type ActionResult = { ok: true } | { ok: false; error: string };
+import type { ActionResult } from './types';
 
 export async function registerUser(formData: FormData): Promise<ActionResult> {
   const raw = {
@@ -19,15 +18,19 @@ export async function registerUser(formData: FormData): Promise<ActionResult> {
     address: formData.get('address')?.toString(),
   };
 
-  const parsed = RegisterSchema.safeParse(raw);
+  const parsed = SignUpSchema.safeParse(raw);
   if (!parsed.success) {
+    const flat = parsed.error.flatten();
     return {
       ok: false,
-      error: parsed.error.issues[0]?.message ?? 'Invalid form',
+      errors: {
+        formErrors: flat.formErrors?.length ? flat.formErrors : [parsed.error.issues[0]?.message ?? 'Invalid form'],
+        fieldErrors: flat.fieldErrors,
+      },
     };
   }
 
-  const data: RegisterInput = parsed.data;
+  const data: SignUpInput = parsed.data;
 
   // Normalize defensively
   const email = data.email.trim().toLowerCase();
@@ -39,7 +42,7 @@ export async function registerUser(formData: FormData): Promise<ActionResult> {
 
   // Unique email guard
   const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) return { ok: false, error: 'Email already registered' };
+  if (exists) return { ok: false, errors: { formErrors: ['Email already registered'] } };
 
   const hash = await bcrypt.hash(data.password, 10);
 
@@ -57,10 +60,10 @@ export async function registerUser(formData: FormData): Promise<ActionResult> {
     // TS-safe narrowing for Prisma known request errors
     if (err instanceof PrismaClientKnownRequestError) {
       if (err.code === 'P2002') {
-        return { ok: false, error: 'Email already registered' };
+        return { ok: false, errors: { formErrors: ['Email already registered'] } };
       }
     }
-    return { ok: false, error: 'Unexpected error creating user' };
+    return { ok: false, errors: { formErrors: ['Unexpected error creating user'] } };
   }
 }
 

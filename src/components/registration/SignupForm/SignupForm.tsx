@@ -12,7 +12,7 @@ import {
   Text,
 } from '@chakra-ui/react';
 import type { FormEvent } from "react";
-import { registerUser } from '@/lib/actions';
+import { registerUser } from '@/lib/auth';
 import type { SignupFormProps } from './SignupForm.types';
 
 export default function SignupForm({ onSuccess }: SignupFormProps) {
@@ -36,7 +36,7 @@ export default function SignupForm({ onSuccess }: SignupFormProps) {
     startTransition(async () => {
       const res = await registerUser(fd);
       if (!res.ok) {
-        setError(res.error ?? 'Could not create account');
+        setError(res.errors?.formErrors?.[0] ?? 'Could not create account');
         return;
       }
       // Success UI
