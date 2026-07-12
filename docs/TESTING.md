@@ -4,11 +4,11 @@
 
 ## Current State
 
-- Runner: Vitest `^4.1.9`
+- Runner: Vitest `^3.2.6`
 - Environment: Node
 - Discovery: `tests/**/*.test.ts`
-- Current test files: 19
-- Current tests: 220
+- Current test files: 42
+- Current tests: 572
 - Coverage thresholds: not configured
 - Playwright E2E: not configured
 - CI: Vitest runs in the parallel `test-coverage` job; dependency audits run
@@ -27,9 +27,9 @@ Current suites cover:
 - mandatory S256 PKCE and plain rejection;
 - atomic authorization-code consumption and replay prevention;
 - HMAC OTP creation and verification, seed safety, and registration kill switch;
-- Invitation-only registration schema, migration, invite lifecycle, transactional outbox, credentials registration, admission controls (Turnstile, CSRF, enumeration parity, limiter dimensions), and social sign-in hardening (JIT denial, silent-linking denial, adapter backstops).
+- Invitation-only registration schema, migration, invite lifecycle, transactional outbox, credentials registration, admission controls (Turnstile, CSRF, enumeration parity, limiter dimensions), social sign-in hardening (JIT denial, silent-linking denial, adapter backstops), explicit account linking, admin MFA elevation, release preflight, migration readiness, and sensitive-log controls.
 
-Baseline verification on 2026-06-21: 19 files and 220 tests passed.
+Baseline verification on 2026-07-12: 42 files and 572 tests passed.
 
 ## Commands
 

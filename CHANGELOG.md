@@ -32,10 +32,11 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   smoke/E2E, and security jobs with branch-aware cancellation.
 - Made lint verification non-mutating and added blocking coverage and client
   bundle budgets.
+- Expanded automated coverage to 572 tests across 42 files.
 
 ### Fixed
 
-- Aligned Vitest core, UI, and coverage packages on 2.1.9 so the coverage gate
+- Aligned Vitest core, UI, and coverage packages on 3.2.6 so the coverage gate
   runs consistently with the supported local runtime.
 
 ---

@@ -184,7 +184,7 @@ pnpm prisma:deploy
 Current limitations:
 
 - `pnpm lint` verifies without mutation; use `pnpm lint:fix` for explicit fixes.
-- Current suite: 19 Vitest files / 220 tests.
+- Current suite: 42 Vitest files / 572 tests.
 - Coverage thresholds and Playwright E2E tests are not configured.
 - The `smoke` script targets `/api/healthz`, which will be implemented during
   the account-linking parity work.

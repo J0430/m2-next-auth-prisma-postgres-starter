@@ -1,7 +1,7 @@
 # Security
 
-**Version:** 1.9.0
-**Last Updated:** 2026-06-21
+**Version:** 1.9.1
+**Last Updated:** 2026-07-12
 **Current Status:** Security hardening controls implemented; production verification pending.
 
 ## Security Posture
@@ -146,7 +146,7 @@ public document describes the current implemented controls and known risks.
 
 ## Control Matrix
 
-| Area | Current (1.9.0) | Required Next State |
+| Area | Current (1.9.1) | Required Next State |
 |------|-----------------|---------------------|
 | Registration | Kill switch plus schema, invite lifecycle, transactional outbox worker, and admission controls | Invite/allowlist runtime gate |
 | Account linking | Explicit state+PKCE linking implemented locally; email ignored and prior sessions invalidated | Provider-dashboard and production-browser proof |
@@ -158,7 +158,7 @@ public document describes the current implemented controls and known risks.
 | Dependencies | Blocking audit gate, 0 HIGH/CRITICAL | Ongoing maintenance |
 | Secrets | Full-history gitleaks in CI | Ongoing |
 | Observability | Console logs | Pino + request IDs + Sentry |
-| Testing | 19 files, 220 tests | Coverage thresholds + Playwright |
+| Testing | 42 files, 572 tests | Coverage thresholds + Playwright |
 | Session lifecycle | 30-day JWT | Max-age review, rotation |
 
 ## Account Linking
