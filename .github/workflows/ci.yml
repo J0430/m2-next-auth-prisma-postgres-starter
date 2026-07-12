@@ -36,12 +36,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:generate
       - run: pnpm prisma:validate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/auth_ci
       - run: pnpm lint
       - run: pnpm typecheck
 
   test-coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/auth_ci
+      NEXTAUTH_SECRET: ci-nextauth-secret-at-least-thirty-two-characters
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -153,6 +158,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
       - uses: actions/download-artifact@v4
         with:
           name: next-build
@@ -242,6 +248,14 @@ jobs:
       - run: psql postgresql://postgres:postgres@localhost:5432/postgres -c 'CREATE DATABASE auth_shadow'
       - name: Exercise clean apply and disposable schema down/up rehearsal
         run: pnpm migration:readiness:ci
+      - name: Print schema diff after readiness failure
+        if: failure()
+        run: |
+          pnpm exec prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$MIGRATION_SHADOW_DATABASE_URL" \
+            --script || true
       - name: Verify PostgreSQL behavioral invariants
         run: pnpm test:db:gated-registration
         env:

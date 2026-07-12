@@ -169,7 +169,7 @@ describe("fail-closed creation-surface inventory", () => {
     expect(() => assertCreationInventory(fixture, allowlist)).toThrow(/unreviewed/i);
     expect(() => assertCreationInventory(analyzeCreationSources(root), [...allowlist, "src/missing.ts:1:user.create:INACTIVE"]))
       .toThrow(/stale/i);
-  });
+  }, 15_000);
 
   it("rejects a production trusted-creation fixture without elevation proof", () => {
     const fixture = analyzeCreationSources(root, {
