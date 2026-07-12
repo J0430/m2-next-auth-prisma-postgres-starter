@@ -1,0 +1,49 @@
+# Manual preflight for Vercel configuration before Preview or Production release actions.
+name: Release readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Vercel environment to verify
+        required: true
+        type: choice
+        options: [preview, production]
+      deployment_id:
+        description: Exact Vercel deployment ID to verify
+        required: true
+        type: string
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  vercel-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:preflight
+        env:
+          RELEASE_TARGET: ${{ inputs.target }}
+          RELEASE_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          RELEASE_GIT_PROVIDER: github
+          RELEASE_GIT_REPOSITORY: ${{ github.repository }}
+          RELEASE_GIT_BRANCH: ${{ github.ref_name }}
+          RELEASE_GIT_SHA: ${{ github.sha }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}

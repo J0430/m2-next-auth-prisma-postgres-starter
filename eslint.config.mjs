@@ -32,5 +32,5 @@ export default [
   }),
 
   // Ignore generated/build artifacts
-  { ignores: ['.next/**', 'node_modules/**', '**/*.d.ts'] },
+  { ignores: ['.next/**', 'coverage/**', 'node_modules/**', '**/*.d.ts'] },
 ];

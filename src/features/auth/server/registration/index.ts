@@ -6,3 +6,4 @@ export {
   registerWithInvite,
 } from "./registerWithInvite";
 export type { RegisterWithInviteInput, RegistrationResult } from "./registerWithInvite";
+export { trustedCreateUser } from "./trustedCreateUser";

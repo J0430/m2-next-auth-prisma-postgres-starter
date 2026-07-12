@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 const ORIGINAL_ENV = { ...process.env };
+const cookieSet = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/rateLimit', () => ({
   buildAdmissionRateLimitChecks: vi.fn(() => [
@@ -38,6 +39,7 @@ vi.mock('next/headers', () => ({
   headers: vi.fn(() => new Headers({ 'x-forwarded-for': '127.0.0.1' })),
   cookies: vi.fn(() => ({
     get: vi.fn(() => undefined),
+    set: cookieSet,
   })),
 }));
 
@@ -85,6 +87,13 @@ describe('Rate-limit enforcement', () => {
       ok: false,
       errors: { formErrors: ['Unable to complete this request.'] },
     });
+    expect(cookieSet).toHaveBeenCalledWith('registration_session', '', expect.objectContaining({
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/register',
+      maxAge: 0,
+    }));
   });
 
   it('returns a generic admission response for resend when rate-limited', async () => {

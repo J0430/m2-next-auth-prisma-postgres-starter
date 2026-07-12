@@ -6,6 +6,7 @@ import { isIP } from "node:net";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { env } from "@/lib/env";
+import { atomicMemoryLimit, atomicRedisLimit } from "./rateLimitAtomic";
 import { hashRateLimitIdentifier, normalizeRateLimitIdentifier } from "./rateLimitIdentifiers";
 export { buildAdmissionRateLimitChecks } from "./rateLimitAdmission";
 export { hashRateLimitIdentifier } from "./rateLimitIdentifiers";
@@ -99,10 +100,17 @@ const POLICY_LIMITS = {
 
 const useUpstash = Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN);
 
-function buildUpstashLimiter(policy: RateLimitPolicy): Ratelimit {
+function buildUpstashLimiter(policy: RateLimitPolicy, signal?: AbortSignal): Ratelimit {
   const { limit, windowMinutes } = POLICY_LIMITS[policy];
+  const redis = signal
+    ? new Redis({
+        url: env.UPSTASH_REDIS_REST_URL,
+        token: env.UPSTASH_REDIS_REST_TOKEN,
+        signal,
+      })
+    : Redis.fromEnv();
   return new Ratelimit({
-    redis: Redis.fromEnv(),
+    redis,
     limiter: Ratelimit.slidingWindow(limit, `${windowMinutes} m`),
     analytics: true,
     prefix: `rl:${policy}`,
@@ -236,8 +244,10 @@ export function getClientIp(headers: HeaderSource): string | null {
 
 export async function rateLimit(
   identifier: string,
-  policy: RateLimitPolicy = "auth-sensitive"
+  policy: RateLimitPolicy = "auth-sensitive",
+  signal?: AbortSignal,
 ): Promise<RateLimitResult> {
+  if (signal?.aborted) throw new DOMException("Rate limit aborted", "AbortError");
   if (process.env.NODE_ENV === "production" && !useUpstash) {
     throw new Error(
       "rateLimit: Upstash is not configured. UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set in production."
@@ -246,9 +256,43 @@ export async function rateLimit(
 
   const limiter = upstashLimiters.get(policy);
   if (limiter) {
-    return limiter.limit(identifier);
+    return signal
+      ? buildUpstashLimiter(policy, signal).limit(identifier)
+      : limiter.limit(identifier);
   }
 
   // In-memory fallback — development and test only
   return memoryLimit(identifier, policy);
+}
+
+export async function rateLimitAll(
+  checks: readonly { key: string; policy: RateLimitPolicy }[],
+  signal?: AbortSignal,
+): Promise<{ success: boolean }> {
+  if (signal?.aborted) throw new DOMException("Rate limit aborted", "AbortError");
+  const atomicChecks = checks.map((check) => {
+    const config = POLICY_LIMITS[check.policy];
+    return {
+      storeKey: `${check.policy}:${check.key}`,
+      limit: config.limit,
+      windowMs: config.windowMinutes * 60 * 1000,
+    };
+  });
+  const upstashUrl = env.UPSTASH_REDIS_REST_URL;
+  const upstashToken = env.UPSTASH_REDIS_REST_TOKEN;
+  if (upstashUrl && upstashToken) {
+    const success = await atomicRedisLimit({
+      checks: atomicChecks,
+      url: upstashUrl,
+      token: upstashToken,
+      ...(signal ? { signal } : {}),
+    });
+    return { success };
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "rateLimitAll: Upstash is not configured. UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set in production.",
+    );
+  }
+  return { success: atomicMemoryLimit(atomicChecks, memoryStore) };
 }

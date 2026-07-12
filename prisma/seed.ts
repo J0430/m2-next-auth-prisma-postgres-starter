@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { hashClientSecret } from '../src/features/auth/server/oauth/clientRegistry';
+import { bootstrapCreateActiveUser } from '../src/features/auth/server/registration/bootstrapCreateActiveUser';
 
 // ─── Safety guards (run before any Prisma construction) ──────────────────────
 
@@ -16,12 +17,12 @@ if (process.env.SEED_CONFIRMATION !== 'DEVELOPMENT_ONLY') {
   process.exit(1);
 }
 
-const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+const primaryDemoPassword = process.env.SEED_ADMIN_PASSWORD;
 const userPassword = process.env.SEED_USER_PASSWORD;
 const oauthClientSecret = process.env.SEED_OAUTH_CLIENT_SECRET;
 
-if (!adminPassword || adminPassword.length < 16) {
-  console.error('[seed] Refused: SEED_ADMIN_PASSWORD must be at least 16 characters.');
+if (!primaryDemoPassword || primaryDemoPassword.length < 16) {
+  console.error('[seed] Refused: SEED_ADMIN_PASSWORD (legacy name) must be at least 16 characters.');
   process.exit(1);
 }
 
@@ -40,47 +41,24 @@ if (!oauthClientSecret || oauthClientSecret.length < 32) {
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminPassHash = await bcrypt.hash(adminPassword, 10);
+  const primaryDemoPassHash = await bcrypt.hash(primaryDemoPassword, 10);
   const userPassHash = await bcrypt.hash(userPassword, 10);
 
-  await prisma.user.upsert({
-    where: { email: 'admin@demo.io' },
-    update: {
-      role: 'ADMIN',
-      origin: 'FIRST_PARTY',
-      profile: {
-        upsert: {
-          create: { country: 'GB', city: 'London', address: '221B Baker Street' },
-          update: { country: 'GB', city: 'London', address: '221B Baker Street' },
-        },
-      },
-    },
-    create: {
-      email: 'admin@demo.io',
-      name: 'Admin Demo',
-      role: 'ADMIN',
-      origin: 'FIRST_PARTY',
-      password: adminPassHash,
-      profile: {
-        create: { country: 'GB', city: 'London', address: '221B Baker Street' },
-      },
-    },
+  await bootstrapCreateActiveUser({
+    client: prisma,
+    email: 'admin@demo.io',
+    name: 'Admin Demo',
+    passwordHash: primaryDemoPassHash,
+    profile: { country: 'GB', city: 'London', address: '221B Baker Street' },
   });
-  console.log('[seed] Created/updated user: admin@demo.io');
+  console.log('[seed] Created/updated non-admin demo user: admin@demo.io');
 
-  await prisma.user.upsert({
-    where: { email: 'user@demo.io' },
-    update: {},
-    create: {
-      email: 'user@demo.io',
-      name: 'User Demo',
-      role: 'USER',
-      origin: 'FIRST_PARTY',
-      password: userPassHash,
-      profile: {
-        create: { country: 'US', city: 'Miami', address: '1 Ocean Dr' },
-      },
-    },
+  await bootstrapCreateActiveUser({
+    client: prisma,
+    email: 'user@demo.io',
+    name: 'User Demo',
+    passwordHash: userPassHash,
+    profile: { country: 'US', city: 'Miami', address: '1 Ocean Dr' },
   });
   console.log('[seed] Created/updated user: user@demo.io');
 

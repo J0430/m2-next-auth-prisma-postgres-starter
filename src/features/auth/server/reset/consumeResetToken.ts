@@ -41,7 +41,10 @@ export async function consumePasswordResetToken(token: string, newPassword: stri
 
   // Atomic: update password + delete ALL tokens + invalidate all sessions
   await prisma.$transaction([
-    prisma.user.update({ where: { id: user.id }, data: { password: hash } }),
+    prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hash, lastStrongAuthAt: null, sessionVersion: { increment: 1 } },
+    }),
     prisma.passwordResetToken.deleteMany({ where: { identifier: record.identifier } }),
     prisma.session.deleteMany({ where: { userId: user.id } }),
   ]);

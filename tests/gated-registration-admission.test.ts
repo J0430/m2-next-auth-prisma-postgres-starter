@@ -13,10 +13,16 @@ const PACKET_02_REQUIRED_PROD_KEYS = [
   "TURNSTILE_EXPECTED_HOSTNAME",
   "TURNSTILE_EXPECTED_ACTION",
   "INTERNAL_WORKER_AUTH_SECRET",
-  "INVITE_DELIVERY_ENCRYPTION_KEY",
+  "QSTASH_URL",
+  "QSTASH_TOKEN",
+  "RESEND_API_KEY",
+  "INVITE_DELIVERY_ENCRYPTION_KEYS",
   "INVITE_DELIVERY_KEY_VERSION",
   "ADMIN_MFA_SECRET_ENCRYPTION_KEYS",
   "ADMIN_MFA_SECRET_KEY_VERSION",
+  "ACCOUNT_LINK_PKCE_SECRET",
+  "GITHUB_LINK_CLIENT_ID",
+  "GITHUB_LINK_CLIENT_SECRET",
 ];
 
 function resetEnv() {
@@ -36,13 +42,19 @@ function buildProdEnv(): Record<string, string> {
     UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
     UPSTASH_REDIS_REST_TOKEN: "prod-upstash-token",
     OTP_HMAC_SECRET: "prod-otp-hmac-secret-at-least-32-chars",
+    ACCOUNT_LINK_PKCE_SECRET: "prod-account-link-pkce-secret-32-chars",
+    GITHUB_LINK_CLIENT_ID: "prod-github-link-client",
+    GITHUB_LINK_CLIENT_SECRET: "prod-github-link-client-secret",
     SELF_SERVICE_REGISTRATION_ENABLED: "false",
     TURNSTILE_SECRET_KEY: "test-turnstile-fixture",
     TURNSTILE_EXPECTED_HOSTNAME: "auth.example.com",
     TURNSTILE_EXPECTED_ACTION: "gated-registration",
     INTERNAL_WORKER_AUTH_SECRET: "prod-worker-auth-secret-at-least-32",
-    INVITE_DELIVERY_ENCRYPTION_KEY: HEX_32_BYTE_KEY,
-    INVITE_DELIVERY_KEY_VERSION: "invite-2026-06",
+    QSTASH_URL: "https://qstash.upstash.io",
+    QSTASH_TOKEN: "qstash-test-token",
+    RESEND_API_KEY: "re_test_nonsecret_fixture",
+    INVITE_DELIVERY_ENCRYPTION_KEYS: JSON.stringify({ "1": HEX_32_BYTE_KEY }),
+    INVITE_DELIVERY_KEY_VERSION: "1",
     ADMIN_MFA_SECRET_ENCRYPTION_KEYS: JSON.stringify({ [ADMIN_MFA_KEY_VERSION]: HEX_32_BYTE_KEY }),
     ADMIN_MFA_SECRET_KEY_VERSION: ADMIN_MFA_KEY_VERSION,
     ADMIN_ELEVATION_MAX_AGE_SECONDS: "300",
@@ -83,8 +95,8 @@ describe("Packet 02 production env contract", () => {
     expect(env.TURNSTILE_EXPECTED_HOSTNAME).toBe("auth.example.com");
     expect(env.TURNSTILE_EXPECTED_ACTION).toBe("gated-registration");
     expect(env.INTERNAL_WORKER_AUTH_SECRET).toBe("prod-worker-auth-secret-at-least-32");
-    expect(env.INVITE_DELIVERY_ENCRYPTION_KEY).toBe(HEX_32_BYTE_KEY);
-    expect(env.INVITE_DELIVERY_KEY_VERSION).toBe("invite-2026-06");
+    expect(env.INVITE_DELIVERY_ENCRYPTION_KEYS).toEqual({ "1": HEX_32_BYTE_KEY });
+    expect(env.INVITE_DELIVERY_KEY_VERSION).toBe("1");
     expect(env.ADMIN_MFA_SECRET_ENCRYPTION_KEYS).toEqual({
       [ADMIN_MFA_KEY_VERSION]: HEX_32_BYTE_KEY,
     });
@@ -106,6 +118,13 @@ describe("Packet 02 production env contract", () => {
         ADMIN_MFA_SECRET_ENCRYPTION_KEYS: "{not-json",
       })
     ).rejects.toThrow();
+  });
+
+  it("keeps admin elevation fixed at the safe 300-second default when omitted", async () => {
+    const values = buildProdEnv();
+    delete values.ADMIN_ELEVATION_MAX_AGE_SECONDS;
+    const { env } = await importEnvWith(values);
+    expect(env.ADMIN_ELEVATION_MAX_AGE_SECONDS).toBe(300);
   });
 
   it("rejects production when the Admin-MFA write version is absent from the keyring", async () => {
@@ -219,6 +238,100 @@ describe("Packet 02 rate-limit dimensions", () => {
     const accountResult = memoryLimit(accountCheck.key, accountCheck.policy);
     expect(accountResult.success).toBe(true);
     expect(accountResult.remaining).toBe(accountResult.limit - 1);
+  });
+
+  it.each([
+    ["ip", "account"],
+    ["account", "ip"],
+    ["ip", "invite"],
+    ["invite", "ip"],
+    ["account", "invite"],
+    ["invite", "account"],
+  ] as const)(
+    "rejects registration atomically when %s is exhausted without consuming %s",
+    async (exhaustedScope, untouchedScope) => {
+      const { buildAdmissionRateLimitChecks, memoryLimit, memoryStore, rateLimitAll } =
+        await import("@/lib/rateLimit");
+      memoryStore.clear();
+      const checks = buildAdmissionRateLimitChecks({
+        surface: "registration",
+        ip: "203.0.113.21",
+        accountIdentifier: "atomic@example.com",
+        inviteTokenHash: INVITE_HASH,
+      });
+      const exhausted = checks.find((check) => check.scope === exhaustedScope);
+      const untouched = checks.find((check) => check.scope === untouchedScope);
+      if (!exhausted || !untouched) throw new Error("missing registration limiter dimension");
+
+      let seed = memoryLimit(exhausted.key, exhausted.policy);
+      for (let attempt = 1; attempt < seed.limit; attempt += 1) {
+        seed = memoryLimit(exhausted.key, exhausted.policy);
+      }
+
+      await expect(rateLimitAll(checks)).resolves.toMatchObject({ success: false });
+      const untouchedResult = memoryLimit(untouched.key, untouched.policy);
+      expect(untouchedResult.remaining).toBe(untouchedResult.limit - 1);
+    },
+  );
+
+  it.each([
+    ["ip", "invite"],
+    ["invite", "ip"],
+    ["ip", "global-exchange-write"],
+    ["global-exchange-write", "ip"],
+    ["invite", "global-exchange-write"],
+    ["global-exchange-write", "invite"],
+  ] as const)(
+    "rejects exchange atomically when %s is exhausted without consuming %s",
+    async (exhaustedScope, untouchedScope) => {
+      const { buildAdmissionRateLimitChecks, memoryLimit, memoryStore, rateLimitAll } =
+        await import("@/lib/rateLimit");
+      memoryStore.clear();
+      const checks = buildAdmissionRateLimitChecks({
+        surface: "fragment-exchange",
+        ip: "203.0.113.22",
+        inviteTokenHash: INVITE_HASH,
+      });
+      const exhausted = checks.find((check) => check.scope === exhaustedScope);
+      const untouched = checks.find((check) => check.scope === untouchedScope);
+      if (!exhausted || !untouched) throw new Error("missing exchange limiter dimension");
+
+      let seed = memoryLimit(exhausted.key, exhausted.policy);
+      for (let attempt = 1; attempt < seed.limit; attempt += 1) {
+        seed = memoryLimit(exhausted.key, exhausted.policy);
+      }
+
+      await expect(rateLimitAll(checks)).resolves.toMatchObject({ success: false });
+      const untouchedResult = memoryLimit(untouched.key, untouched.policy);
+      expect(untouchedResult.remaining).toBe(untouchedResult.limit - 1);
+    },
+  );
+
+  it("admits one concurrent exchange at the global boundary and charges every dimension once", async () => {
+    const { buildAdmissionRateLimitChecks, memoryLimit, memoryStore, rateLimitAll } =
+      await import("@/lib/rateLimit");
+    memoryStore.clear();
+    const checks = buildAdmissionRateLimitChecks({
+      surface: "fragment-exchange",
+      ip: "203.0.113.23",
+      inviteTokenHash: INVITE_HASH,
+    });
+    const global = checks.find((check) => check.scope === "global-exchange-write");
+    const ip = checks.find((check) => check.scope === "ip");
+    const invite = checks.find((check) => check.scope === "invite");
+    if (!global || !ip || !invite) throw new Error("missing exchange limiter dimension");
+
+    const firstSeed = memoryLimit(global.key, global.policy);
+    for (let attempt = 1; attempt < firstSeed.limit - 1; attempt += 1) {
+      memoryLimit(global.key, global.policy);
+    }
+
+    const results = await Promise.all([rateLimitAll(checks), rateLimitAll(checks)]);
+    expect(results.filter((result) => result.success)).toHaveLength(1);
+    const ipProbe = memoryLimit(ip.key, ip.policy);
+    const inviteProbe = memoryLimit(invite.key, invite.policy);
+    expect(ipProbe.remaining).toBe(ipProbe.limit - 2);
+    expect(inviteProbe.remaining).toBe(inviteProbe.limit - 2);
   });
 });
 

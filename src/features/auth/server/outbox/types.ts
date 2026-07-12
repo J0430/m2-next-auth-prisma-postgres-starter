@@ -32,6 +32,7 @@ export type OutboxUpdateData = {
   failedAt?: Date;
   lastErrorCode?: string | null;
   inviteCiphertext?: Uint8Array | null;
+  keyVersion?: number | null;
   clearedAt?: Date | null;
 };
 
@@ -51,10 +52,18 @@ export type RecipientUser = {
   status: string;
 };
 
+export type InviteRecipient = {
+  id: string;
+  normalizedEmail: string | null;
+  status: string;
+  expiresAt: Date;
+};
+
 export type SendVerificationEmailArgs = {
   to: string;
   code: string;
   name?: string;
+  signal?: AbortSignal;
 };
 
 export type OutboxStateDeps = {
@@ -67,6 +76,7 @@ export type OutboxStateDeps = {
 export type OutboxTransactionClient = OutboxStateDeps["db"] & {
   queryClaimableOutboxEmails(id: string, now: Date): Promise<ClaimableOutboxEmailRow[]>;
   findRecipientUser(id: string): Promise<RecipientUser | null>;
+  findInviteRecipient?(id: string): Promise<InviteRecipient | null>;
 };
 
 export type OutboxDb = OutboxTransactionClient & {
@@ -81,7 +91,7 @@ export type OutboxProcessorDeps = {
   sendVerificationEmail(args: SendVerificationEmailArgs): Promise<void>;
   decryptInviteToken(ciphertext: Uint8Array, keyVersion: number | null): string;
   buildInviteAcceptUrl(rawToken: string): string;
-  sendInvitationEmail(args: SendInvitationEmailArgs): Promise<void>;
+  sendInvitationEmail(args: SendInvitationEmailArgs & { signal?: AbortSignal }): Promise<void>;
 };
 
 export type OutboxProcessResult = {

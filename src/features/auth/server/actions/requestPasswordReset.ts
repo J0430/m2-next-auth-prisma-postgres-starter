@@ -67,9 +67,11 @@ export async function requestPasswordReset(formData: FormData): Promise<ActionRe
       name: user.name ?? undefined,
       ttlMinutes,
     });
-  } catch (error) {
+  } catch {
     // Silent failure — don't reveal email status to client
-    console.error("[Password Reset] Failed:", error);
+    console.error("auth.password_reset_processing_failed", {
+      code: "PASSWORD_RESET_PROCESSING_FAILED",
+    });
   }
 
   return { ok: true };

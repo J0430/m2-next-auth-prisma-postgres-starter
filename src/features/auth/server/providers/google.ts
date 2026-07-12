@@ -22,4 +22,6 @@ export function googleProvider() {
  *
  * Local:
  *   http://localhost:3000/api/auth/callback/google
+ * Dedicated account-link callback (configure separately):
+ *   {APP_URL}/api/account/link/google/callback
  */

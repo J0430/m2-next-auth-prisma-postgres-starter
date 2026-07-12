@@ -10,9 +10,12 @@ import "next-auth/jwt";
 
 declare module "next-auth" {
   interface Session {
+    lastAuthAt?: number;
+    authProvider?: string;
     user: {
       id: string;
       role?: "USER" | "ADMIN";
+      sessionVersion: number;
     } & DefaultSession["user"];
   }
 
@@ -29,5 +32,7 @@ declare module "next-auth/jwt" {
     role?: "USER" | "ADMIN";
     sessionVersion?: number;
     authRejected?: boolean;
+    lastAuthAt?: number;
+    authProvider?: string;
   }
 }

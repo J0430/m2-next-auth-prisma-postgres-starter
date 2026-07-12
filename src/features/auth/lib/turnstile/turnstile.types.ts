@@ -8,6 +8,7 @@ export type VerifyTurnstileTokenInput = {
   fetcher?: TurnstileFetcher;
   now?: Date;
   maxAgeSeconds?: number;
+  signal?: AbortSignal;
 };
 
 export type TurnstileVerificationResult =

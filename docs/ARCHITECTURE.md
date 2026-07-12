@@ -1,6 +1,6 @@
 # Architecture
 
-**Version:** 1.9.0
+**Version:** 1.9.1
 **Last Updated:** 2026-06-21
 
 ## System Role
@@ -39,7 +39,7 @@ flowchart LR
 | Account domain | `src/features/account/` | Profile, onboarding, password, providers, deletion |
 | Shared UI | `src/components/ui/` | Reusable application components |
 | Shared runtime | `src/lib/` | Prisma, environment, rate limiting, validation, data |
-| Persistence | `prisma/` | Schema, migrations, seed, Packet 02 gated-registration foundation |
+| Persistence | `prisma/` | Schema, migrations, seed, and invitation-only registration models |
 
 Route handlers generally delegate to feature/server modules. A known exception
 is OTP verification, which performs the post-verification user lookup and
@@ -78,7 +78,7 @@ Current behavior:
 - Maximum attempts are enforced, but failed-attempt updates are not fully
   atomic.
 - Successful verification automatically creates a 30-day JWT session.
-- Self-service signup is disabled in production via `SELF_SERVICE_REGISTRATION_ENABLED=false`; the Packet 02 schema, invite lifecycle, transactional outbox worker, atomic invite registration service, and shared admission-control foundation exist, while remaining public invite surfaces stay behind the production kill switch.
+- Self-service signup is disabled in production via `SELF_SERVICE_REGISTRATION_ENABLED=false`; the invitation lifecycle, transactional outbox worker, atomic registration service, and shared admission controls are in place while public invite surfaces remain behind the production kill switch.
 
 ### Credentials Sign-In
 
@@ -105,7 +105,10 @@ email equality:
 
 The Prisma adapter is wrapped so `createUser` and `linkAccount` throw before
 durable persistence if a future NextAuth path bypasses the callback gate.
-Explicit social account linking is reserved for a future both-factor ceremony.
+Explicit social account linking uses dedicated authenticated start and provider
+callback routes. The callback revalidates the current session generation before
+exchanging the code, resolves only the provider subject, and atomically links
+while bumping `sessionVersion`; it never enters the normal sign-in callback.
 
 ### Password Reset
 
@@ -225,6 +228,7 @@ erDiagram
     User ||--o{ AuditEvent : is_target_of
     User ||--o{ AccountLinkIntent : has
     User ||--o{ AdminMfaFactor : has
+    User ||--o{ AdminCapabilityGrant : holds
     OAuthClient ||--o{ OAuthAuthorizationCode : issues_for
     Invite ||--o{ RegistrationSession : scopes
 
@@ -276,6 +280,13 @@ erDiagram
       AdminMfaStatus status
       bytes secretCipher
       int keyVersion
+      bigint lastUsedStep
+    }
+
+    AdminCapabilityGrant {
+      string capability
+      datetime grantedAt
+      datetime revokedAt
     }
 
     VerificationToken {
@@ -329,15 +340,15 @@ flowchart TB
     N --> G[Google / GitHub]
 ```
 
-Upstash Redis is required in production. The app refuses to start without valid Upstash credentials. The in-memory rate-limit fallback is available in development and test only. Packet 02 adds independent admission dimensions across registration, invite redemption, login, password reset, OTP verify, fragment exchange, and admin operation surfaces. The internal outbox worker endpoint consumes the same trusted-IP/rate-limit helpers and processes QStash-safe messages that contain only the opaque outbox row id plus non-secret routing metadata.
+Upstash Redis is required in production. The app refuses to start without valid Upstash credentials. The in-memory rate-limit fallback is available in development and test only. Independent admission dimensions cover registration, invite redemption, login, password reset, OTP verify, fragment exchange, and admin operation surfaces. The internal outbox worker endpoint consumes the same trusted-IP/rate-limit helpers and processes QStash-safe messages that contain only the opaque outbox row id plus non-secret routing metadata.
 
 See [Deployment](DEPLOYMENT.md).
 
 ## Current Direction
 
 1. Deploy security hardening (v1.8.5) to production and verify golden paths (CI passes; production verification pending).
-2. Complete the remaining invite-gated registration runtime surfaces on top of the Packet 02 schema, invite lifecycle, outbox worker, atomic invite registration service, and admission-control foundation.
-3. Reach the LSA engineering baseline for strict TypeScript, CI, tests,
+2. Complete the remaining invite-only registration runtime surfaces on top of the schema, invite lifecycle, outbox worker, atomic invite registration service, and admission controls.
+3. Reach the project engineering baseline for strict TypeScript, CI, tests,
    observability, documentation, and accessibility.
 4. Add `App`, `AppMembership`, and `AppSubject`.
 5. Keep existing clients on public subjects and default new clients to

@@ -2,13 +2,13 @@
 // Shared types for the Packet 02 invite lifecycle service.
 export interface CreateInviteInput {
   issuerUserId: string;
-  email: string;
+  email: string | null;
 }
 
 export interface CreateInviteResult {
   inviteId: string;
   rawToken: string;
-  normalizedEmail: string;
+  normalizedEmail: string | null;
   expiresAt: Date;
 }
 
@@ -18,6 +18,10 @@ export interface RevokeInviteInput {
 
 export interface RevokeInviteResult {
   ok: true;
+}
+
+export interface RevokeInviteInTxResult extends RevokeInviteResult {
+  revoked: boolean;
 }
 
 export type InviteLookupResult =
@@ -30,7 +34,11 @@ export type InviteLookupResult =
         expiresAt: Date;
       };
     }
-  | { ok: false };
+  | {
+      ok: false;
+      status: 403;
+      body: { ok: false; message: "Unable to complete this request." };
+    };
 
 export type ResolvedInvite =
   | { tokenHash: Buffer }
@@ -51,7 +59,38 @@ export type RedeemInviteResult =
   | { ok: true; invite: RedeemedInviteRecord }
   | { ok: false };
 
+export interface InviteIssuanceTransactionClient {
+  invite: {
+    create(args: {
+      data: {
+        issuerUserId: string;
+        normalizedEmail: string | null;
+        tokenHash: Buffer;
+        expiresAt: Date;
+      };
+      select: { id: true; normalizedEmail: true; expiresAt: true };
+    }): Promise<{ id: string; normalizedEmail: string | null; expiresAt: Date }>;
+  };
+}
+
+export interface InviteRevocationTransactionClient {
+  invite: {
+    updateMany(args: {
+      where: {
+        id: string;
+        status: "ISSUED";
+        expiresAt: { gt: Date };
+      };
+      data: {
+        status: "REVOKED";
+        revokedAt: Date;
+      };
+    }): Promise<{ count: number }>;
+  };
+}
+
 export interface InviteTransactionClient {
+  redeemerUserId: string;
   invite: {
     updateMany(args: {
       where: {
@@ -59,7 +98,7 @@ export interface InviteTransactionClient {
         tokenHash?: Buffer;
         status: "ISSUED";
         expiresAt: { gt: Date };
-        normalizedEmail?: string;
+        normalizedEmail: string | null;
       };
       data: {
         status: "REDEEMED";
@@ -85,27 +124,12 @@ export interface InviteTransactionClient {
       };
     }): Promise<RedeemedInviteRecord | null>;
   };
-  user: {
-    findUnique(args: {
-      where: { email: string };
-      select: { id: true };
-    }): Promise<{ id: string } | null>;
-  };
-  auditEvent: {
-    create(args: {
-      data: {
-        action: string;
-        targetType: string;
-        targetId: string | null;
-        metadata: Record<string, string | number | boolean | null>;
-      };
-    }): Promise<unknown>;
-  };
 }
 
 export interface InviteReuseAlertPayload {
   inviteId: string;
   status: "REDEEMED";
+  auditPersisted: boolean;
 }
 
 export type InviteReuseAlertHandler = (

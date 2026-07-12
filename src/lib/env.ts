@@ -27,6 +27,20 @@ const AdminMfaSecretKeyringEnvSchema = z
   })
   .pipe(AdminMfaSecretKeyringSchema);
 
+const InviteDeliveryKeyringSchema = z
+  .record(z.string().regex(/^\d+$/), HexEncoded32ByteKeySchema)
+  .refine((keyring) => Object.keys(keyring).length > 0, {
+    message: "INVITE_DELIVERY_ENCRYPTION_KEYS must contain at least one key version",
+  });
+
+const InviteDeliveryKeyringEnvSchema = z.string().transform((value, ctx): unknown => {
+  try { return JSON.parse(value) as unknown; }
+  catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "INVITE_DELIVERY_ENCRYPTION_KEYS must be valid JSON" });
+    return z.NEVER;
+  }
+}).pipe(InviteDeliveryKeyringSchema);
+
 const AdminElevationMaxAgeSchema = z.coerce
   .number()
   .int()
@@ -50,6 +64,9 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
+  GITHUB_LINK_CLIENT_ID: z.string().optional(),
+  GITHUB_LINK_CLIENT_SECRET: z.string().optional(),
+  ACCOUNT_LINK_PKCE_SECRET: z.string().min(32).optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
   VERIFY_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(10),
@@ -76,7 +93,9 @@ const EnvSchema = z.object({
   TURNSTILE_EXPECTED_HOSTNAME: z.string().min(1).optional(),
   TURNSTILE_EXPECTED_ACTION: z.string().min(1).optional(),
   INTERNAL_WORKER_AUTH_SECRET: z.string().min(32).optional(),
-  INVITE_DELIVERY_ENCRYPTION_KEY: HexEncoded32ByteKeySchema.optional(),
+  QSTASH_URL: z.string().url().optional(),
+  QSTASH_TOKEN: z.string().min(1).optional(),
+  INVITE_DELIVERY_ENCRYPTION_KEYS: InviteDeliveryKeyringEnvSchema.optional(),
   INVITE_DELIVERY_KEY_VERSION: z.string().min(1).optional(),
   ADMIN_MFA_SECRET_ENCRYPTION_KEYS: AdminMfaSecretKeyringEnvSchema.optional(),
   ADMIN_MFA_SECRET_KEY_VERSION: z.string().min(1).optional(),
@@ -86,6 +105,7 @@ const EnvSchema = z.object({
   SEED_USER_PASSWORD: z.string().optional(),
   SEED_OAUTH_CLIENT_SECRET: z.string().optional(),
   SEED_CONFIRMATION: z.string().optional(),
+  ALLOW_USER_BOOTSTRAP: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
 });
 
 const requireProductionValue = (ctx: z.RefinementCtx, path: string, value: unknown) => {
@@ -147,6 +167,9 @@ const EnvSchemaProd = EnvSchema.superRefine((data, ctx) => {
         message: "OTP_HMAC_SECRET is required in production (min 32 chars)",
       });
     }
+    requireProductionValue(ctx, "ACCOUNT_LINK_PKCE_SECRET", data.ACCOUNT_LINK_PKCE_SECRET);
+    requireProductionValue(ctx, "GITHUB_LINK_CLIENT_ID", data.GITHUB_LINK_CLIENT_ID);
+    requireProductionValue(ctx, "GITHUB_LINK_CLIENT_SECRET", data.GITHUB_LINK_CLIENT_SECRET);
     if (data.SELF_SERVICE_REGISTRATION_ENABLED !== "false") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -158,8 +181,15 @@ const EnvSchemaProd = EnvSchema.superRefine((data, ctx) => {
     requireProductionValue(ctx, "TURNSTILE_EXPECTED_HOSTNAME", data.TURNSTILE_EXPECTED_HOSTNAME);
     requireProductionValue(ctx, "TURNSTILE_EXPECTED_ACTION", data.TURNSTILE_EXPECTED_ACTION);
     requireProductionValue(ctx, "INTERNAL_WORKER_AUTH_SECRET", data.INTERNAL_WORKER_AUTH_SECRET);
-    requireProductionValue(ctx, "INVITE_DELIVERY_ENCRYPTION_KEY", data.INVITE_DELIVERY_ENCRYPTION_KEY);
+    requireProductionValue(ctx, "QSTASH_URL", data.QSTASH_URL);
+    requireProductionValue(ctx, "QSTASH_TOKEN", data.QSTASH_TOKEN);
+    requireProductionValue(ctx, "RESEND_API_KEY", data.RESEND_API_KEY);
+    requireProductionValue(ctx, "INVITE_DELIVERY_ENCRYPTION_KEYS", data.INVITE_DELIVERY_ENCRYPTION_KEYS);
     requireProductionValue(ctx, "INVITE_DELIVERY_KEY_VERSION", data.INVITE_DELIVERY_KEY_VERSION);
+    if (data.INVITE_DELIVERY_ENCRYPTION_KEYS && data.INVITE_DELIVERY_KEY_VERSION &&
+      !Object.prototype.hasOwnProperty.call(data.INVITE_DELIVERY_ENCRYPTION_KEYS, data.INVITE_DELIVERY_KEY_VERSION)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["INVITE_DELIVERY_KEY_VERSION"], message: "INVITE_DELIVERY_KEY_VERSION must exist in INVITE_DELIVERY_ENCRYPTION_KEYS" });
+    }
     requireProductionValue(ctx, "ADMIN_MFA_SECRET_ENCRYPTION_KEYS", data.ADMIN_MFA_SECRET_ENCRYPTION_KEYS);
     requireProductionValue(ctx, "ADMIN_MFA_SECRET_KEY_VERSION", data.ADMIN_MFA_SECRET_KEY_VERSION);
     if (
@@ -200,6 +230,9 @@ const rawEnv = {
   GOOGLE_CLIENT_SECRET: normalizeEnvValue(process.env.GOOGLE_CLIENT_SECRET),
   GITHUB_CLIENT_ID: normalizeEnvValue(process.env.GITHUB_CLIENT_ID),
   GITHUB_CLIENT_SECRET: normalizeEnvValue(process.env.GITHUB_CLIENT_SECRET),
+  GITHUB_LINK_CLIENT_ID: normalizeEnvValue(process.env.GITHUB_LINK_CLIENT_ID),
+  GITHUB_LINK_CLIENT_SECRET: normalizeEnvValue(process.env.GITHUB_LINK_CLIENT_SECRET),
+  ACCOUNT_LINK_PKCE_SECRET: normalizeEnvValue(process.env.ACCOUNT_LINK_PKCE_SECRET),
   RESEND_API_KEY: normalizeEnvValue(process.env.RESEND_API_KEY),
   RESEND_FROM: normalizeEnvValue(process.env.RESEND_FROM),
   VERIFY_TOKEN_TTL_MINUTES: normalizeEnvValue(process.env.VERIFY_TOKEN_TTL_MINUTES),
@@ -223,7 +256,9 @@ const rawEnv = {
   TURNSTILE_EXPECTED_HOSTNAME: normalizeEnvValue(process.env.TURNSTILE_EXPECTED_HOSTNAME),
   TURNSTILE_EXPECTED_ACTION: normalizeEnvValue(process.env.TURNSTILE_EXPECTED_ACTION),
   INTERNAL_WORKER_AUTH_SECRET: normalizeEnvValue(process.env.INTERNAL_WORKER_AUTH_SECRET),
-  INVITE_DELIVERY_ENCRYPTION_KEY: normalizeEnvValue(process.env.INVITE_DELIVERY_ENCRYPTION_KEY),
+  QSTASH_URL: normalizeEnvValue(process.env.QSTASH_URL),
+  QSTASH_TOKEN: normalizeEnvValue(process.env.QSTASH_TOKEN),
+  INVITE_DELIVERY_ENCRYPTION_KEYS: normalizeEnvValue(process.env.INVITE_DELIVERY_ENCRYPTION_KEYS),
   INVITE_DELIVERY_KEY_VERSION: normalizeEnvValue(process.env.INVITE_DELIVERY_KEY_VERSION),
   ADMIN_MFA_SECRET_ENCRYPTION_KEYS: normalizeEnvValue(process.env.ADMIN_MFA_SECRET_ENCRYPTION_KEYS),
   ADMIN_MFA_SECRET_KEY_VERSION: normalizeEnvValue(process.env.ADMIN_MFA_SECRET_KEY_VERSION),
@@ -232,6 +267,7 @@ const rawEnv = {
   SEED_USER_PASSWORD: normalizeEnvValue(process.env.SEED_USER_PASSWORD),
   SEED_OAUTH_CLIENT_SECRET: normalizeEnvValue(process.env.SEED_OAUTH_CLIENT_SECRET),
   SEED_CONFIRMATION: normalizeEnvValue(process.env.SEED_CONFIRMATION),
+  ALLOW_USER_BOOTSTRAP: normalizeEnvValue(process.env.ALLOW_USER_BOOTSTRAP),
 };
 
 const parsed = (shouldSkipValidation ? EnvSchema.partial() : EnvSchemaProd).safeParse(rawEnv);

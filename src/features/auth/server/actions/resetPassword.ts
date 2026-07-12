@@ -11,11 +11,23 @@
 
 import { headers } from "next/headers";
 import { consumePasswordResetToken } from "@/features/auth/server/reset/consumeResetToken";
+import { monotonicNow, padAdmissionTiming } from "@/features/auth/server/admission";
 import { buildRateLimitKey, getClientIp, rateLimit } from "@/lib/rateLimit";
 import { resetPasswordSchema } from "@/lib/validation/reset";
 import type { ActionResult } from "./types";
 
+const genericResetFailure = (): ActionResult => ({
+  ok: false,
+  errors: { formErrors: ["Unable to complete this request."] },
+});
+
+async function rejectWithParity(startedAtMs: number): Promise<ActionResult> {
+  await padAdmissionTiming(startedAtMs);
+  return genericResetFailure();
+}
+
 export async function resetPassword(formData: FormData): Promise<ActionResult> {
+  const startedAtMs = monotonicNow();
   // 1. Validate input
   const parsed = resetPasswordSchema.safeParse({
     token: formData.get("token")?.toString(),
@@ -24,14 +36,7 @@ export async function resetPassword(formData: FormData): Promise<ActionResult> {
   });
 
   if (!parsed.success) {
-    const flat = parsed.error.flatten();
-    return {
-      ok: false,
-      errors: {
-        formErrors: flat.formErrors?.length ? flat.formErrors : [parsed.error.issues[0]?.message ?? "Invalid input"],
-        fieldErrors: flat.fieldErrors,
-      },
-    };
+    return rejectWithParity(startedAtMs);
   }
 
   const { token, password } = parsed.data;
@@ -42,23 +47,14 @@ export async function resetPassword(formData: FormData): Promise<ActionResult> {
   const limitResult = await rateLimit(identifier);
 
   if (!limitResult.success) {
-    return { ok: false, errors: { formErrors: ["Too many attempts. Please try again later."] } };
+    return rejectWithParity(startedAtMs);
   }
 
   // 3. Consume token + update password
   const result = await consumePasswordResetToken(token, password);
 
   if (!result.ok) {
-    const errorMap: Record<string, string> = {
-      "not-found": "Invalid or expired reset link.",
-      "expired": "Reset link has expired. Please request a new one.",
-    };
-    return {
-      ok: false,
-      errors: {
-        formErrors: [errorMap[result.reason] ?? "Unable to reset password."],
-      },
-    };
+    return rejectWithParity(startedAtMs);
   }
 
   return { ok: true };

@@ -1,12 +1,13 @@
 // tests/gated-registration-credentials.test.ts
 // Proves invite-gated credentials registration does not bind a password until OTP verification.
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const ORIGINAL_ENV = { ...process.env };
 const NOW = new Date("2026-06-21T00:00:00.000Z");
 const TOKEN_HASH = Buffer.from("a".repeat(64), "hex");
 const HANDLE = "opaque-registration-handle";
+const testMonotonicClock = (): number => Date.now();
 
 function resetEnv(): void {
   Object.keys(process.env).forEach((key) => {
@@ -81,6 +82,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  vi.spyOn(performance, "now").mockReturnValue(0);
   resetEnv();
   setBaseEnv();
 });
@@ -119,19 +121,23 @@ describe("registerWithInvite", () => {
   function setupRegistrationMocks(
     overrides: {
       redeemOk?: boolean;
+      reuseInviteId?: string;
       createThrows?: Error;
       registrationSession?: {
         id: string;
         handleHash: Buffer;
         inviteTokenHash: Buffer | null;
         inviteId: string | null;
-        normalizedEmail: string;
+        normalizedEmail: string | null;
         status: string;
         expiresAt: Date;
         consumedAt: Date | null;
       } | null;
       consumeCounts?: number[];
       userIds?: string[];
+      transactionDelayMs?: number;
+      sessionLookupDelayMs?: number;
+      transactionThrows?: Error;
     } = {}
   ) {
     const defaultRegistrationSession = {
@@ -152,6 +158,12 @@ describe("registerWithInvite", () => {
     const userIds = [...(overrides.userIds ?? ["user-victim"])];
     const tx = {
       registrationSession: {
+        findUnique: vi.fn(async () => {
+          if (overrides.sessionLookupDelayMs) {
+            await new Promise((resolve) => setTimeout(resolve, overrides.sessionLookupDelayMs));
+          }
+          return registrationSession;
+        }),
         updateMany: vi.fn(async () => ({ count: consumeCounts.shift() ?? 1 })),
       },
       user: {
@@ -169,19 +181,27 @@ describe("registerWithInvite", () => {
         create: vi.fn(),
       },
       outboxEmail: {
-        create: vi.fn(async () => ({ id: "outbox-1" })),
+        create: vi.fn(async () => ({ id: "outbox-1", dedupId: "email-verification:user-victim" })),
       },
     };
+    let transactionCalls = 0;
     const prisma = {
       registrationSession: {
         findUnique: vi.fn(async () => registrationSession),
       },
-      $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) =>
-        callback(tx)
-      ),
+      $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => {
+        transactionCalls += 1;
+        if (overrides.transactionDelayMs && transactionCalls > 1) {
+          await new Promise((resolve) => setTimeout(resolve, overrides.transactionDelayMs));
+        }
+        if (overrides.transactionThrows) throw overrides.transactionThrows;
+        return callback(tx);
+      }),
     };
-    const redeemInviteInTx = vi.fn(async () =>
-      overrides.redeemOk === false
+    const redeemInviteInTx = vi.fn(async (client: { signalReuseDetected?: (inviteId: string) => never }) =>
+      overrides.redeemOk === false && overrides.reuseInviteId && client.signalReuseDetected
+        ? client.signalReuseDetected(overrides.reuseInviteId)
+        : overrides.redeemOk === false
         ? { ok: false as const }
         : {
             ok: true as const,
@@ -197,29 +217,45 @@ describe("registerWithInvite", () => {
             },
           }
     );
+    const recordInviteReuseEvidence = vi.fn(async () => undefined);
 
     vi.doMock("@/lib/prisma", () => ({ prisma }));
-    vi.doMock("@/features/auth/server/invites", () => ({ redeemInviteInTx }));
+    vi.doMock("@/features/auth/server/invites", () => ({
+      redeemInviteInTx,
+      recordInviteReuseEvidence,
+    }));
 
-    return { prisma, tx, redeemInviteInTx };
+    return { prisma, tx, redeemInviteInTx, recordInviteReuseEvidence };
   }
 
   it("creates an INACTIVE user with no password and commits consume, redeem, user, and outbox in one transaction", async () => {
     const { prisma, tx, redeemInviteInTx } = setupRegistrationMocks();
     const { registerWithInvite } = await import("@/features/auth/server/registration");
+    const startedAt = Date.now();
 
-    const result = await registerWithInvite({
+    let settled = false;
+    const pending = registerWithInvite({
       formData: buildForm(),
       headers: buildHeaders(),
       expectedOrigin: "http://localhost",
       registrationHandle: HANDLE,
       csrfSessionToken: "csrf-token",
+      monotonicClock: testMonotonicClock,
       now: NOW,
       fetcher: buildTurnstileFetcher(),
-    });
+    }).finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await pending;
 
+    expect(Date.now() - startedAt).toBe(250);
     expect(result).toMatchObject({ ok: true, email: "victim@example.com", userId: "user-victim" });
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(prisma.$transaction).toHaveBeenLastCalledWith(expect.any(Function), {
+      maxWait: 50,
+      timeout: 150,
+    });
     expect(tx.registrationSession.updateMany).toHaveBeenCalledWith({
       where: {
         handleHash: expectedHandleHash(),
@@ -243,15 +279,10 @@ describe("registerWithInvite", () => {
     );
     expect(redeemInviteInTx).toHaveBeenCalledWith(
       expect.objectContaining({
+        redeemerUserId: "user-victim",
         invite: expect.objectContaining({
           updateMany: expect.any(Function),
           findFirst: expect.any(Function),
-        }),
-        user: expect.objectContaining({
-          findUnique: expect.any(Function),
-        }),
-        auditEvent: expect.objectContaining({
-          create: expect.any(Function),
         }),
       }),
       { tokenHash: TOKEN_HASH },
@@ -264,12 +295,14 @@ describe("registerWithInvite", () => {
         dedupId: "email-verification:user-victim",
         status: "PENDING",
       }),
+      select: { id: true, dedupId: true },
     });
   });
 
   it("[B1 opaque-ref isolation] rejects a submitted email/invite-B attempt that does not match invite A's server-resolved ref", async () => {
     const { prisma, tx, redeemInviteInTx } = setupRegistrationMocks();
     const { registerWithInvite } = await import("@/features/auth/server/registration");
+    const startedAt = Date.now();
     const formData = buildForm("other-victim@example.com");
     formData.set("inviteToken", "invite-b-token-that-must-be-ignored");
 
@@ -279,18 +312,20 @@ describe("registerWithInvite", () => {
       expectedOrigin: "http://localhost",
       registrationHandle: HANDLE,
       csrfSessionToken: "csrf-token",
+      monotonicClock: testMonotonicClock,
       now: NOW,
       fetcher: buildTurnstileFetcher(),
     });
     await vi.advanceTimersByTimeAsync(250);
     const result = await pendingResult;
 
+    expect(Date.now() - startedAt).toBe(250);
     expectGenericRegistrationFailure(result);
-    expect(prisma.registrationSession.findUnique).toHaveBeenCalledWith({
+    expect(tx.registrationSession.findUnique).toHaveBeenCalledWith({
       where: { handleHash: expectedHandleHash() },
       select: expect.any(Object),
     });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.user.create).not.toHaveBeenCalled();
     expect(redeemInviteInTx).not.toHaveBeenCalled();
   });
@@ -301,17 +336,21 @@ describe("registerWithInvite", () => {
       userIds: ["user-victim-first", "user-victim-second"],
     });
     const { registerWithInvite } = await import("@/features/auth/server/registration");
+    const startedAt = Date.now();
     const input = {
       formData: buildForm(),
       headers: buildHeaders(),
       expectedOrigin: "http://localhost",
       registrationHandle: HANDLE,
       csrfSessionToken: "csrf-token",
+      monotonicClock: testMonotonicClock,
       now: NOW,
       fetcher: buildTurnstileFetcher(),
     };
 
-    await expect(registerWithInvite(input)).resolves.toMatchObject({
+    const first = registerWithInvite(input);
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(first).resolves.toMatchObject({
       ok: true,
       userId: "user-victim-first",
     });
@@ -319,6 +358,7 @@ describe("registerWithInvite", () => {
     await vi.advanceTimersByTimeAsync(250);
     const replayResult = await replay;
 
+    expect(Date.now() - startedAt).toBe(500);
     expectGenericRegistrationFailure(replayResult);
     expect(tx.registrationSession.updateMany).toHaveBeenCalledTimes(2);
     expect(tx.registrationSession.updateMany).toHaveBeenNthCalledWith(2, {
@@ -337,6 +377,147 @@ describe("registerWithInvite", () => {
     expect(tx.user.create).toHaveBeenCalledTimes(1);
   });
 
+  it("writes replay evidence only after the registration transaction rolls back", async () => {
+    const { prisma, recordInviteReuseEvidence } = setupRegistrationMocks({
+      redeemOk: false,
+      reuseInviteId: "invite-reused",
+    });
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+    const startedAt = Date.now();
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW,
+      monotonicClock: testMonotonicClock,
+      fetcher: buildTurnstileFetcher(),
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(pending).resolves.toMatchObject({ ok: false, status: 403 });
+
+    expect(Date.now() - startedAt).toBe(250);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(recordInviteReuseEvidence).toHaveBeenCalledWith("invite-reused");
+    expect(prisma.$transaction.mock.invocationCallOrder[0]).toBeLessThan(
+      recordInviteReuseEvidence.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("rejects a malformed session that omits normalizedEmail instead of treating it as unbound", async () => {
+    const malformedSession = {
+      id: "registration-session-1",
+      handleHash: expectedHandleHash(),
+      inviteTokenHash: TOKEN_HASH,
+      inviteId: null,
+      status: "PENDING",
+      expiresAt: new Date(NOW.getTime() + 60_000),
+      consumedAt: null,
+    };
+    const { prisma, tx, redeemInviteInTx } = setupRegistrationMocks({
+      registrationSession: malformedSession as never,
+    });
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW,
+      monotonicClock: testMonotonicClock,
+      fetcher: buildTurnstileFetcher(),
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expectGenericRegistrationFailure(await pending);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.registrationSession.updateMany).not.toHaveBeenCalled();
+    expect(tx.user.create).not.toHaveBeenCalled();
+    expect(redeemInviteInTx).not.toHaveBeenCalled();
+  });
+
+  it("aborts a Turnstile dependency at the admission deadline and starts no mutation transaction", async () => {
+    const { prisma, tx } = setupRegistrationMocks();
+    let observedSignal: AbortSignal | undefined;
+    const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
+    });
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW, fetcher,
+      monotonicClock: testMonotonicClock,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expectGenericRegistrationFailure(await pending);
+    expect(observedSignal?.aborted).toBe(true);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.registrationSession.updateMany).not.toHaveBeenCalled();
+    expect(tx.user.create).not.toHaveBeenCalled();
+  });
+
+  it("times out bounded registration-session lookup before any mutation starts", async () => {
+    const { prisma, tx } = setupRegistrationMocks({ sessionLookupDelayMs: 100 });
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW,
+      monotonicClock: testMonotonicClock,
+      fetcher: buildTurnstileFetcher(),
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expectGenericRegistrationFailure(await pending);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.registrationSession.updateMany).not.toHaveBeenCalled();
+    expect(tx.user.create).not.toHaveBeenCalled();
+  });
+
+  it("preserves a committed success when transaction completion overruns the parity target", async () => {
+    const { tx } = setupRegistrationMocks({ transactionDelayMs: 300 });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+    let settled = false;
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW,
+      monotonicClock: testMonotonicClock,
+      fetcher: buildTurnstileFetcher(),
+    }).finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      email: "victim@example.com",
+      userId: "user-victim",
+    });
+    expect(tx.outboxEmail.create).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "security.registration_timing_parity_breach",
+      { targetMs: 250, elapsedMs: 300 },
+    );
+  });
+
+  it("maps transaction timeouts to the same result at the exact public target", async () => {
+    setupRegistrationMocks({ transactionThrows: new Error("P2028 transaction timeout") });
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+    const startedAt = Date.now();
+
+    const pending = registerWithInvite({
+      formData: buildForm(), headers: buildHeaders(), expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE, csrfSessionToken: "csrf-token", now: NOW,
+      monotonicClock: testMonotonicClock,
+      fetcher: buildTurnstileFetcher(),
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expectGenericRegistrationFailure(await pending);
+    expect(Date.now() - startedAt).toBe(250);
+  });
+
   it("[B3 CSRF] rejects before ref resolution or redemption when CSRF validation fails", async () => {
     const { prisma, tx, redeemInviteInTx } = setupRegistrationMocks();
     const { registerWithInvite } = await import("@/features/auth/server/registration");
@@ -347,6 +528,7 @@ describe("registerWithInvite", () => {
       expectedOrigin: "http://localhost",
       registrationHandle: HANDLE,
       csrfSessionToken: "different-session-token",
+      monotonicClock: testMonotonicClock,
       now: NOW,
       fetcher: buildTurnstileFetcher(),
     });
@@ -354,10 +536,43 @@ describe("registerWithInvite", () => {
     const result = await pendingResult;
 
     expectGenericRegistrationFailure(result);
-    expect(prisma.registrationSession.findUnique).not.toHaveBeenCalled();
+    expect(tx.registrationSession.findUnique).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.user.create).not.toHaveBeenCalled();
     expect(redeemInviteInTx).not.toHaveBeenCalled();
+  });
+
+  it("rejects registration when the atomic admission set is exhausted", async () => {
+    const rateLimitAll = vi.fn(async () => ({ success: false }));
+    vi.doMock("@/lib/rateLimit", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/rateLimit")>("@/lib/rateLimit");
+      return { ...actual, rateLimitAll };
+    });
+    const { tx } = setupRegistrationMocks();
+    const { registerWithInvite } = await import("@/features/auth/server/registration");
+
+    const pending = registerWithInvite({
+      formData: buildForm(),
+      headers: buildHeaders(),
+      expectedOrigin: "http://localhost",
+      registrationHandle: HANDLE,
+      csrfSessionToken: "csrf-token",
+      monotonicClock: testMonotonicClock,
+      now: NOW,
+      fetcher: buildTurnstileFetcher(),
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    expectGenericRegistrationFailure(await pending);
+    expect(rateLimitAll).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ policy: "registration-ip" }),
+        expect.objectContaining({ policy: "registration-account" }),
+        expect.objectContaining({ policy: "registration-invite" }),
+      ]),
+      expect.any(AbortSignal),
+    );
+    expect(tx.registrationSession.updateMany).not.toHaveBeenCalled();
+    expect(tx.user.create).not.toHaveBeenCalled();
   });
 
   it("maps duplicate email races to the same generic admission result without leaking P2002", async () => {
@@ -370,6 +585,7 @@ describe("registerWithInvite", () => {
       expectedOrigin: "http://localhost",
       registrationHandle: HANDLE,
       csrfSessionToken: "csrf-token",
+      monotonicClock: testMonotonicClock,
       now: NOW,
       fetcher: buildTurnstileFetcher(),
     });
@@ -385,6 +601,46 @@ describe("registerWithInvite", () => {
 });
 
 describe("OTP activation", () => {
+  it("rejects a superseded OTP and lets only its replacement activate once", async () => {
+    const { createHmac } = await import("node:crypto");
+    const secret = process.env.OTP_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
+    const digest = (code: string) => createHmac("sha256", secret).update(code, "utf8").digest("hex");
+    const newestToken = { identifier: "victim@example.com", token: digest("222222"), expires: new Date(NOW.getTime() + 60_000) };
+    let active = false;
+    let consumed = false;
+    const tx = {
+      verificationToken: {
+        findFirst: vi.fn(async ({ where }: { where: { token: string } }) =>
+          !consumed && where.token === newestToken.token ? newestToken : null),
+        deleteMany: vi.fn(async () => { consumed = true; return { count: 1 }; }),
+      },
+      user: {
+        findUnique: vi.fn(async () => ({ id: "user-victim", emailVerified: active ? NOW : null, status: active ? "ACTIVE" : "INACTIVE" })),
+        updateMany: vi.fn(async () => { active = true; return { count: 1 }; }),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
+      verificationToken: {
+        findFirst: vi.fn(async () => (!consumed ? newestToken : null)),
+        update: vi.fn(async () => ({ attempts: 1 })),
+        deleteMany: vi.fn(),
+      },
+    };
+    vi.doMock("@/lib/prisma", () => ({ prisma }));
+    vi.doMock("bcryptjs", () => ({ hash: vi.fn(async () => "replacement-password-hash") }));
+    const { consumeVerificationToken } = await import("@/features/auth/server/verify/consumeToken");
+
+    await expect(consumeVerificationToken("victim@example.com", "111111", "ReplacementP@ss123"))
+      .resolves.toEqual({ ok: false, reason: "invalid-code" });
+    expect(active).toBe(false);
+    await expect(consumeVerificationToken("victim@example.com", "222222", "ReplacementP@ss123"))
+      .resolves.toEqual({ ok: true });
+    await expect(consumeVerificationToken("victim@example.com", "222222", "ReplacementP@ss123"))
+      .resolves.toEqual({ ok: false, reason: "not-found" });
+    expect(tx.user.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it("[R3-1 pre-hijack] ignores attacker registration password and lets only the OTP holder activate with their password", async () => {
     const { tx } = (() => {
       const setup = {
@@ -854,7 +1110,7 @@ describe("credentials authorize limiter and enumeration parity", () => {
   });
 
   it.each([
-    { label: "unknown email", user: null, compareResult: false },
+    { label: "absent account", user: null, compareResult: false },
     {
       label: "wrong password",
       user: {
@@ -887,14 +1143,45 @@ describe("credentials authorize limiter and enumeration parity", () => {
       },
       compareResult: true,
     },
-  ])("returns the same generic null result for $label", async ({ user, compareResult }) => {
+    {
+      label: "suspended account",
+      user: {
+        id: "user-2", email: "user@example.com", name: null, role: "USER",
+        passwordHash: "hash", hasPasswordCredential: true, emailVerified: NOW,
+        origin: "FIRST_PARTY", status: "SUSPENDED", sessionVersion: 1,
+      },
+      compareResult: true,
+    },
+    {
+      label: "deleted account",
+      user: {
+        id: "user-3", email: "user@example.com", name: null, role: "USER",
+        passwordHash: "hash", hasPasswordCredential: true, emailVerified: NOW,
+        origin: "FIRST_PARTY", status: "DELETED", sessionVersion: 1,
+      },
+      compareResult: true,
+    },
+    {
+      label: "email-mismatch equivalent wrong password",
+      user: {
+        id: "user-4", email: "user@example.com", name: null, role: "USER",
+        passwordHash: "hash", hasPasswordCredential: true, emailVerified: NOW,
+        origin: "FIRST_PARTY", status: "ACTIVE", sessionVersion: 1,
+      },
+      compareResult: false,
+    },
+    { label: "malformed credentials", user: null, compareResult: false, credentials: { email: "bad", password: "x" } },
+  ])("returns the same generic null result for $label", async ({ user, compareResult, credentials }) => {
     const { authorize } = await importCredentialsAuthorize({ user, compareResult });
 
+    let settled = false;
     const pendingResult = authorize(
-      { email: "user@example.com", password: "Password1!" },
+      credentials ?? { email: "user@example.com", password: "Password1!" },
       { headers: {} }
-    );
-    await vi.advanceTimersByTimeAsync(250);
+    ).finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
     await expect(pendingResult).resolves.toBeNull();
   });
 });

@@ -26,12 +26,11 @@ export async function createVerificationToken(email: string) {
   const token = hashOtpCode(code);
   const expires = new Date(Date.now() + TTL_MIN * 60 * 1000);
 
-  await prisma.$transaction([
-    prisma.verificationToken.deleteMany({ where: { identifier } }),
-    prisma.verificationToken.create({
-      data: { identifier, token, expires, attempts: 0 },
-    }),
-  ]);
+  await prisma.verificationToken.upsert({
+    where: { identifier },
+    create: { identifier, token, expires, attempts: 0 },
+    update: { token, expires, attempts: 0 },
+  });
 
   return { ok: true as const, code };
 }

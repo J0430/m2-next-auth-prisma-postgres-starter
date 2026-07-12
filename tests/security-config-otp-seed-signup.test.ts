@@ -1,5 +1,5 @@
 // tests/security-config-otp-seed-signup.test.ts
-// Security tests: OTP HMAC, env validation, seed safety, signup kill switch.
+// Security tests: OTP HMAC, env validation, seed safety, and gated signup routing.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -40,13 +40,19 @@ function buildProdBaseEnv(): Record<string, string> {
     UPSTASH_REDIS_REST_URL: 'https://example.upstash.io',
     UPSTASH_REDIS_REST_TOKEN: 'dummy-token',
     OTP_HMAC_SECRET: 'prod-otp-hmac-secret-at-least-32xx',
+    ACCOUNT_LINK_PKCE_SECRET: 'prod-account-link-pkce-secret-32-chars',
+    GITHUB_LINK_CLIENT_ID: 'prod-github-link-client',
+    GITHUB_LINK_CLIENT_SECRET: 'prod-github-link-client-secret',
     SELF_SERVICE_REGISTRATION_ENABLED: 'false',
     TURNSTILE_SECRET_KEY: 'test-turnstile-fixture',
     TURNSTILE_EXPECTED_HOSTNAME: 'auth.example.com',
     TURNSTILE_EXPECTED_ACTION: 'gated-registration',
     INTERNAL_WORKER_AUTH_SECRET: 'prod-worker-auth-secret-at-least-32',
-    INVITE_DELIVERY_ENCRYPTION_KEY: HEX_32_BYTE_KEY,
-    INVITE_DELIVERY_KEY_VERSION: 'invite-2026-06',
+    QSTASH_URL: 'https://qstash.upstash.io',
+    QSTASH_TOKEN: 'qstash-test-token',
+    RESEND_API_KEY: 're_test_nonsecret_fixture',
+    INVITE_DELIVERY_ENCRYPTION_KEYS: JSON.stringify({ "1": HEX_32_BYTE_KEY }),
+    INVITE_DELIVERY_KEY_VERSION: '1',
     ADMIN_MFA_SECRET_ENCRYPTION_KEYS: JSON.stringify({ [ADMIN_MFA_KEY_VERSION]: HEX_32_BYTE_KEY }),
     ADMIN_MFA_SECRET_KEY_VERSION: ADMIN_MFA_KEY_VERSION,
     ADMIN_ELEVATION_MAX_AGE_SECONDS: '300',
@@ -198,6 +204,14 @@ describe('Production env validation', () => {
     delete process.env.UPSTASH_REDIS_REST_URL;
     await expect(import('@/lib/env')).rejects.toThrow();
   });
+
+  it('rejects production when RESEND_API_KEY is missing', async () => {
+    const base = { ...PROD_BASE };
+    delete base.RESEND_API_KEY;
+    Object.assign(process.env, base);
+    delete process.env.RESEND_API_KEY;
+    await expect(import('@/lib/env')).rejects.toThrow();
+  });
 });
 
 // ─── 3. No SKIP_ENV_VALIDATION in build configs ──────────────────────────────
@@ -282,112 +296,6 @@ describe('Seed safety guards (source-level assertions)', () => {
   });
 });
 
-// ─── 5. Signup kill switch ───────────────────────────────────────────────────
-// vi.doMock (non-hoisted) is used so these mocks don't pollute the OTP tests above.
-
-function setupSignupMocks() {
-  vi.resetModules();
-  process.env.SKIP_ENV_VALIDATION = 'true';
-  process.env.NEXTAUTH_SECRET = 'test-nextauth-secret-at-least-32xx';
-  process.env.SELF_SERVICE_REGISTRATION_ENABLED = 'false';
-
-  vi.doMock('@/lib/prisma', () => ({
-    prisma: {
-      user: { findUnique: vi.fn(), create: vi.fn() },
-    },
-  }));
-  vi.doMock('@/lib/rateLimit', () => ({
-    buildRateLimitKey: vi.fn(() => 'key'),
-    getClientIp: vi.fn(() => '127.0.0.1'),
-    rateLimit: vi.fn(async () => ({ success: true, limit: 3, remaining: 2, reset: Date.now() })),
-  }));
-  vi.doMock('bcryptjs', () => ({ default: { hash: vi.fn() } }));
-  // Kill switch fires before createVerificationToken is ever called — stub only what's needed
-  vi.doMock('@/features/auth/server/verify/createToken', () => ({
-    createVerificationToken: vi.fn(),
-    hashOtpCode: vi.fn(),
-  }));
-  vi.doMock('@/features/auth/lib/email/provider', () => ({
-    sendVerificationEmail: vi.fn(),
-  }));
-  vi.doMock('next/headers', () => ({
-    headers: vi.fn(() => new Headers({ 'x-forwarded-for': '127.0.0.1' })),
-  }));
-}
-
-describe('Signup kill switch — first-party', () => {
-  beforeEach(setupSignupMocks);
-  afterEach(() => { vi.resetModules(); vi.restoreAllMocks(); resetEnv(); });
-
-  it('returns unavailable error when SELF_SERVICE_REGISTRATION_ENABLED is false', async () => {
-    const { registerUser } = await import('@/features/auth/server/actions/signup');
-    const formData = new FormData();
-    formData.set('firstname', 'Test');
-    formData.set('lastname', 'User');
-    formData.set('email', 'test@example.com');
-    formData.set('password', 'MyP@ss123456');
-    formData.set('repeatpassword', 'MyP@ss123456');
-    formData.set('country', 'us');
-    formData.set('city', 'NYC');
-    formData.set('address', '123 Test St');
-
-    const result = await registerUser(formData);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.formErrors?.[0]).toContain('unavailable');
-    }
-  });
-
-  it('does not call prisma.user.findUnique when registration is disabled', async () => {
-    const { prisma } = await import('@/lib/prisma');
-    const { registerUser } = await import('@/features/auth/server/actions/signup');
-    const formData = new FormData();
-    formData.set('firstname', 'Test');
-    formData.set('lastname', 'User');
-    formData.set('email', 'test@example.com');
-    formData.set('password', 'MyP@ss123456');
-    formData.set('repeatpassword', 'MyP@ss123456');
-
-    await registerUser(formData);
-    // Prisma must NOT be called — no DB probing
-    expect(prisma.user.findUnique).not.toHaveBeenCalled();
-  });
-});
-
-describe('Signup kill switch — OAuth', () => {
-  beforeEach(setupSignupMocks);
-  afterEach(() => { vi.resetModules(); vi.restoreAllMocks(); resetEnv(); });
-
-  it('OAuth registerUser returns unavailable when registration is disabled', async () => {
-    const { registerUser } = await import('@/features/auth/server/oauth/actions/signup');
-    const formData = new FormData();
-    formData.set('firstname', 'Test');
-    formData.set('lastname', 'User');
-    formData.set('email', 'test@example.com');
-    formData.set('password', 'MyP@ss123456');
-    formData.set('repeatpassword', 'MyP@ss123456');
-    formData.set('country', 'us');
-    formData.set('city', 'NYC');
-    formData.set('address', '123 Test St');
-
-    const result = await registerUser(formData);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.formErrors?.[0]).toContain('unavailable');
-    }
-  });
-
-  it('OAuth signup does not call prisma.user.findUnique when registration is disabled', async () => {
-    const { prisma } = await import('@/lib/prisma');
-    const { registerUser } = await import('@/features/auth/server/oauth/actions/signup');
-    const formData = new FormData();
-    formData.set('firstname', 'Test');
-    formData.set('lastname', 'User');
-    formData.set('email', 'test@example.com');
-    formData.set('password', 'MyP@ss123456');
-    formData.set('repeatpassword', 'MyP@ss123456');
-
-    await registerUser(formData);
-    expect(prisma.user.findUnique).not.toHaveBeenCalled();
-  });
-});
+// TASK-027 replaces the temporary kill-switch behavior. Opaque invite admission
+// remains fail-closed inside registerWithInvite and is covered by the dedicated
+// gated-registration credentials and UI suites.

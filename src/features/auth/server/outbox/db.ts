@@ -7,6 +7,7 @@ import type {
   OutboxUpdateManyArgs,
   OutboxUpdateResult,
   RecipientUser,
+  InviteRecipient,
 } from "./types";
 
 export const CLAIM_DUE_OUTBOX_EMAIL_SQL = `
@@ -21,6 +22,7 @@ SELECT
 FROM "public"."outbox_emails"
 WHERE "id" = $1
   AND "status" IN ('PENDING', 'CLAIMED')
+  AND "availableAt" <= $2
   AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= $2)
   AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= $3)
 ORDER BY "createdAt" ASC
@@ -39,6 +41,12 @@ type PrismaOutboxClient = {
       select: { id: true; email: true; name: true; status: true };
     }): Promise<RecipientUser | null>;
   };
+  invite: {
+    findUnique(args: {
+      where: { id: string };
+      select: { id: true; normalizedEmail: true; status: true; expiresAt: true };
+    }): Promise<InviteRecipient | null>;
+  };
 };
 
 function createPrismaTransactionClient(tx: PrismaOutboxClient): OutboxTransactionClient {
@@ -51,6 +59,10 @@ function createPrismaTransactionClient(tx: PrismaOutboxClient): OutboxTransactio
         where: { id },
         select: { id: true, email: true, name: true, status: true },
       }),
+    findInviteRecipient: (id) => tx.invite.findUnique({
+      where: { id },
+      select: { id: true, normalizedEmail: true, status: true, expiresAt: true },
+    }),
   };
 }
 

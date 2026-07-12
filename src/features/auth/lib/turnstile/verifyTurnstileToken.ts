@@ -49,6 +49,7 @@ export async function verifyTurnstileToken(
     const response = await fetcher(TURNSTILE_SITEVERIFY_URL, {
       method: "POST",
       body: form,
+      signal: input.signal,
     });
     const payload: unknown = await response.json();
     const parsed = SiteverifyResponseSchema.safeParse(payload);

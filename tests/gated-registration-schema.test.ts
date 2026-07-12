@@ -5,6 +5,7 @@ import { join, resolve } from 'path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const MIGRATION_SUFFIX = '_gated_registration_foundation';
+const CORRECTION_MIGRATION = '20260712180000_gated_registration_invariant_correction';
 
 type PrismaBlockType = 'enum' | 'model';
 
@@ -50,6 +51,10 @@ function readMigrationFile(filename: 'migration.sql' | 'down.sql'): string {
   return readFileSync(filePath, 'utf8');
 }
 
+function readCorrectionMigration(filename: 'migration.sql' | 'down.sql'): string {
+  return readProjectFile(['prisma', 'migrations', CORRECTION_MIGRATION, filename]);
+}
+
 function expectBlockMatches(blockType: PrismaBlockType, blockName: string, pattern: RegExp, message: string): void {
   const block = readPrismaBlock(blockType, blockName);
   expect(block, message).toMatch(pattern);
@@ -61,6 +66,12 @@ function expectMigrationContains(expected: string): void {
 }
 
 describe('Packet 02 gated registration schema foundation', () => {
+  it('enforces one verification token per identifier', () => {
+    expect(readPrismaBlock('model', 'VerificationToken')).toMatch(/identifier\s+String\s+@unique/);
+    expect(readCorrectionMigration('migration.sql')).toContain(
+      'CREATE UNIQUE INDEX "verification_tokens_identifier_key"',
+    );
+  });
   it('D1-01 models case-insensitive unique user email', () => {
     expectBlockMatches(
       'model',
@@ -83,6 +94,12 @@ describe('Packet 02 gated registration schema foundation', () => {
     );
     expectMigrationContains('chk_invite_redeemed_binding');
     expectMigrationContains('chk_invite_revoked_binding');
+    expect(readCorrectionMigration('migration.sql')).toContain(
+      'CONSTRAINT "chk_invites_token_hash_length"',
+    );
+    expect(readCorrectionMigration('migration.sql')).toContain(
+      'CHECK (octet_length("tokenHash") = 32)',
+    );
   });
 
   it('D1-04 models deduplicated outbox email with ciphertext clearing guard', () => {
@@ -175,6 +192,21 @@ describe('Packet 02 gated registration schema foundation', () => {
     expectBlockMatches('model', 'User', /lastStrongAuthAt\s+DateTime\?/, 'User must expose freshness marker');
     expectBlockMatches('model', 'User', /sessionVersion\s+Int\s+@default\(0\)/, 'User must support session invalidation versioning');
     expect(readSchema()).not.toContain('AdminStepUpChallenge');
+    const correction = readCorrectionMigration('migration.sql');
+    expect(correction).toContain('CREATE CONSTRAINT TRIGGER "users_admin_mfa_capability"');
+    expect(correction).toContain('CREATE CONSTRAINT TRIGGER "admin_mfa_factors_admin_capability"');
+    expect(correction).toContain('DEFERRABLE INITIALLY DEFERRED');
+    expect(correction).toContain("candidate.\"role\" = 'ADMIN'");
+    expect(correction).toContain('candidate."mfaEnrolledAt" IS NULL');
+    expect(correction).toContain("factor.\"status\" = 'ACTIVE'");
+    expect(correction).toContain("CONSTRAINT = 'chk_admin_mfa_capability'");
+    expect(readPrismaBlock('model', 'AdminCapabilityGrant')).toMatch(/userId\s+String[\s\S]*capability\s+String[\s\S]*revokedAt\s+DateTime\?/);
+    expect(correction).toContain('admin_capability_grants_active_unique');
+    expect(correction).toContain('admin_mfa_factors_one_pending_totp_per_user');
+    expect(correction).toContain('"lastUsedStep" BIGINT');
+    expect(correction).toContain('CREATE TRIGGER "admin_mfa_legacy_exemptions_immutable"');
+    expect(correction).toContain('BEFORE INSERT OR UPDATE ON "public"."admin_mfa_legacy_exemptions"');
+    expect(correction).toContain('REVOKE INSERT, UPDATE, TRUNCATE');
   });
 
   it('provides an explicit reversible down migration', () => {
@@ -183,5 +215,13 @@ describe('Packet 02 gated registration schema foundation', () => {
     expect(downSql).toContain('DROP TABLE IF EXISTS "public"."admin_mfa_factors"');
     expect(downSql).toContain('DROP TABLE IF EXISTS "public"."registration_sessions"');
     expect(downSql).toContain('DROP TYPE IF EXISTS "public"."AccountStatus"');
+    const correctionDown = readCorrectionMigration('down.sql');
+    expect(correctionDown).toContain('DROP TRIGGER IF EXISTS "admin_mfa_factors_admin_capability"');
+    expect(correctionDown).toContain('DROP TRIGGER IF EXISTS "users_admin_mfa_capability"');
+    expect(correctionDown).toContain('DROP CONSTRAINT IF EXISTS "chk_invites_token_hash_length"');
+    expect(correctionDown).toContain('DROP TABLE IF EXISTS "public"."admin_capability_grants"');
+    expect(correctionDown).toContain('DROP TRIGGER IF EXISTS "admin_mfa_legacy_exemptions_immutable"');
+    expect(correctionDown).toContain('DROP FUNCTION IF EXISTS "public"."reject_admin_mfa_legacy_exemption_mutation"');
+    expect(correctionDown).toContain('DROP COLUMN IF EXISTS "lastUsedStep"');
   });
 });

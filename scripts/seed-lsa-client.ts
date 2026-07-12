@@ -1,6 +1,7 @@
 // Seed script: Register Learning Speaking App as an OAuth client
 import crypto from "crypto";
 import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
 
 const prisma = new PrismaClient();
 
@@ -18,8 +19,10 @@ const LSA_CLIENT = {
   scopes: ["openid", "email", "profile"],
 };
 
+const ClientSecretSchema = z.string().min(32);
+
 async function main() {
-  const clientSecret = crypto.randomBytes(32).toString("base64url");
+  const clientSecret = ClientSecretSchema.parse(process.env.LSA_CLIENT_SECRET);
   const clientSecretHash = crypto
     .createHash("sha256")
     .update(clientSecret)
@@ -39,17 +42,16 @@ async function main() {
   });
 
   console.log("\n✅ OAuth client registered successfully!\n");
-  console.log("Add these to your LSA project's .env.local:");
+  console.log("Add this public identifier to your LSA project's .env.local:");
   console.log("─".repeat(50));
   console.log(`AUTH_CLIENT_ID=${record.clientId}`);
-  console.log(`AUTH_CLIENT_SECRET=${clientSecret}`);
   console.log("─".repeat(50));
-  console.log("\n⚠️  Save the secret now — it cannot be retrieved later.\n");
+  console.log("\nThe pre-provisioned credential was hashed and was not emitted.\n");
 }
 
 main()
-  .catch((error) => {
-    console.error("❌ Failed to create OAuth client:", error);
+  .catch(() => {
+    console.error("oauth_client_seed_failed", { code: "OAUTH_CLIENT_SEED_FAILED" });
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

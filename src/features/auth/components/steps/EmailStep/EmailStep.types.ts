@@ -8,6 +8,4 @@ export interface EmailStepProps {
   direction: 'forward' | 'backward';
   onEmailChange: (value: string) => void;
   onNext: () => void;
-  onGoToSignup: () => void;
 }
-

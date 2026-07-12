@@ -29,6 +29,8 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
       name: user.name,
       role,
       sessionVersion: user.sessionVersion,
+      lastAuthAt: Date.now(),
+      authProvider: "credentials",
     },
     secret: env.NEXTAUTH_SECRET,
   });

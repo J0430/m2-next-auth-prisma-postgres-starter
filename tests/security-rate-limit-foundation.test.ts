@@ -22,6 +22,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.doUnmock("@upstash/redis");
+  vi.doUnmock("@upstash/ratelimit");
   Object.keys(process.env).forEach((key) => {
     if (!(key in ORIGINAL_ENV)) delete process.env[key];
   });
@@ -123,6 +125,52 @@ describe("rateLimit — production fail-closed", () => {
 
     // Restore NODE_ENV so other tests are not affected
     Object.assign(process.env, { NODE_ENV: "test" });
+  });
+});
+
+describe("rateLimit — abort-bound Upstash transport", () => {
+  it("binds the caller signal to a per-request Redis client and rejects on abort", async () => {
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example.invalid";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "test-token";
+    const redisConfigs: Array<Record<string, unknown>> = [];
+    const limit = vi.fn();
+
+    vi.doMock("@upstash/redis", () => ({
+      Redis: class Redis {
+        readonly signal: AbortSignal | undefined;
+        static fromEnv(): object { return {}; }
+        constructor(config: Record<string, unknown>) {
+          redisConfigs.push(config);
+          this.signal = config.signal instanceof AbortSignal ? config.signal : undefined;
+        }
+      },
+    }));
+    vi.doMock("@upstash/ratelimit", () => ({
+      Ratelimit: class Ratelimit {
+        static slidingWindow(): object { return {}; }
+        constructor(config: { redis: { signal?: AbortSignal } }) {
+          limit.mockImplementation((_identifier: string) => new Promise<never>((_resolve, reject) => {
+            config.redis.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Rate limit aborted", "AbortError"));
+            }, { once: true });
+          }));
+        }
+        limit = limit;
+      },
+    }));
+
+    const { rateLimit } = await import("@/lib/rateLimit");
+    const controller = new AbortController();
+    const pending = rateLimit("request-key", "registration-ip", controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(redisConfigs).toContainEqual(expect.objectContaining({
+      url: "https://redis.example.invalid",
+      token: "test-token",
+      signal: controller.signal,
+    }));
+    expect(limit).toHaveBeenCalledWith("request-key");
   });
 });
 

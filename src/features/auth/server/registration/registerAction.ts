@@ -31,10 +31,6 @@ function resolveExpectedOrigin(requestHeaders: Headers): string {
 }
 
 export async function registerUser(formData: FormData): Promise<ActionResult> {
-  if (env.SELF_SERVICE_REGISTRATION_ENABLED === "false") {
-    return { ok: false, errors: { formErrors: ["Registration is currently unavailable."] } };
-  }
-
   const requestHeaders = await headers();
   const cookieStore = await cookies();
   const result = await registerWithInvite({
@@ -43,6 +39,13 @@ export async function registerUser(formData: FormData): Promise<ActionResult> {
     expectedOrigin: resolveExpectedOrigin(requestHeaders),
     registrationHandle: cookieStore.get(REGISTRATION_SESSION_COOKIE_NAME)?.value ?? null,
     csrfSessionToken: cookieStore.get(REGISTRATION_CSRF_COOKIE_NAME)?.value ?? null,
+  });
+  cookieStore.set(REGISTRATION_SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    path: "/register",
+    maxAge: 0,
   });
 
   if (result.ok) {

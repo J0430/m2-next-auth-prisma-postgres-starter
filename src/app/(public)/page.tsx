@@ -1,306 +1,121 @@
-'use client';
+// Public sign-in surface; account creation is available only through invitations.
+"use client";
 
-import { useState, useTransition, useRef, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { signIn, useSession } from 'next-auth/react';
-import { AnimatePresence } from 'framer-motion';
-import { SignInSchema } from '@/lib/validation/signin';
-import { SignUpSchema } from '@/lib/validation/signup';
-import AuthShell from '@/components/ui/AuthShell';
-import { registerUser } from '@/features/auth/server/actions';
-import EmailStep from '@/features/auth/components/steps/EmailStep';
-import PasswordStep from '@/features/auth/components/steps/PasswordStep';
-import SignupStep from '@/features/auth/components/steps/SignupStep';
-import type { SignupData } from '@/features/auth/components/steps/SignupStep';
+import { AnimatePresence } from "framer-motion";
+import { signIn, useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState, useTransition } from "react";
 
+import AuthShell from "@/components/ui/AuthShell";
+import EmailStep from "@/features/auth/components/steps/EmailStep";
+import PasswordStep from "@/features/auth/components/steps/PasswordStep";
+import { SignInSchema } from "@/lib/validation/signin";
 
-type Step = 'email' | 'password' | 'signup';
+type Step = "email" | "password";
 
-export default function MimicPage() {
+export default function PublicSignInPage() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl');
-  const initialMode = searchParams.get('mode');
-  const [step, setStep] = useState<Step>(initialMode === 'signup' ? 'signup' : 'email');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const callbackUrl = useSearchParams().get("callbackUrl");
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  
-  // Signup form state
-  const [signupData, setSignupData] = useState<SignupData>({
-    firstname: '',
-    lastname: '',
-    email: '',
-    password: '',
-    repeatpassword: '',
-    country: '',
-    city: '',
-    address: '',
-  });
-  const [signupErrors, setSignupErrors] = useState<Record<string, string>>({});
-  
+  const [pending, startTransition] = useTransition();
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
-  const directionRef = useRef<'forward' | 'backward'>('forward');
-  const [shouldAnimate, setShouldAnimate] = useState(false);
+  const directionRef = useRef<"forward" | "backward">("forward");
+  const [animate, setAnimate] = useState(false);
 
-  const handleEmailNext = () => {
+  useEffect(() => {
+    if (status !== "authenticated" || !session?.user) return;
+    if (callbackUrl) window.location.href = callbackUrl;
+    else router.replace("/dashboard");
+  }, [callbackUrl, router, session, status]);
+
+  const transitionTo = (next: Step, direction: "forward" | "backward") => {
+    directionRef.current = direction;
+    setAnimate(true);
+    setStep(next);
+    setTimeout(() => setAnimate(false), 500);
+  };
+
+  const next = () => {
     setError(null);
-    
-    // Validate email format
-    const emailValidation = SignInSchema.pick({ email: true }).safeParse({ email });
-    if (!emailValidation.success) {
-      setError('Please enter a valid email address');
-      // Focus back on email input if validation fails
+    const parsed = SignInSchema.pick({ email: true }).safeParse({ email });
+    if (!parsed.success) {
+      setError("Please enter a valid email address");
       emailInputRef.current?.focus();
       return;
     }
-
-    // Normalize email
-    const normalizedEmail = email.trim().toLowerCase();
-    setEmail(normalizedEmail);
-    directionRef.current = 'forward';
-    setShouldAnimate(true);
-    setStep('password');
-    // Reset animation flag after animation completes
-    setTimeout(() => setShouldAnimate(false), 500);
+    setEmail(email.trim().toLowerCase());
+    transitionTo("password", "forward");
   };
 
-  const handleEmailChange = (value: string) => {
-    setEmail(value);
-    setError(null); // Clear error on input change
-  };
-
-  const handlePasswordSubmit = async () => {
+  const submit = () => {
     setError(null);
-
     if (!password) {
-      setError('Please enter your password');
+      setError("Please enter your password");
       passwordInputRef.current?.focus();
       return;
     }
-
     startTransition(async () => {
-      // Normalize email again before submission
-      const normalizedEmail = email.trim().toLowerCase();
-
-      const res = await signIn('credentials', {
+      const result = await signIn("credentials", {
         redirect: false,
-        email: normalizedEmail,
+        email: email.trim().toLowerCase(),
         password,
       });
-
-      if (res?.error) {
-        if (res.error === 'EMAIL_NOT_VERIFIED') {
-          setError('Please verify your email address before signing in. Check your inbox for a verification code.');
-        } else if (res.error === 'RATE_LIMITED') {
-          setError('Too many requests. Please try again later.');
-        } else {
-          setError('Invalid credentials. Please check your email and password.');
-        }
-        // Focus back on password input on error
+      if (result?.error) {
+        setError(result.error === "RATE_LIMITED"
+          ? "Too many requests. Please try again later."
+          : "Invalid credentials. Please check your email and password.");
         passwordInputRef.current?.focus();
         return;
       }
-
-      // Refresh session context without reloading the page
-      // This will trigger a re-render and show the UserCard
       await update();
     });
   };
 
-  const handlePasswordChange = (value: string) => {
-    setPassword(value);
-    setError(null); // Clear error on input change
-  };
-
-  const handleBack = () => {
-    setError(null);
-    setPassword('');
-    directionRef.current = 'backward';
-    setShouldAnimate(true);
-    setStep('email');
-    // Reset animation flag after animation completes
-    setTimeout(() => setShouldAnimate(false), 500);
-  };
-
-  const handleGoToSignup = () => {
-    setError(null);
-    directionRef.current = 'forward';
-    setShouldAnimate(true);
-    setStep('signup');
-    // Reset animation flag after animation completes
-    setTimeout(() => setShouldAnimate(false), 500);
-  };
-
-  const handleSignupBack = () => {
-    setSignupErrors({});
-    setError(null);
-    directionRef.current = 'backward';
-    setShouldAnimate(true);
-    setStep('email');
-    // Reset animation flag after animation completes
-    setTimeout(() => setShouldAnimate(false), 500);
-  };
-
-  const handleSignupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSignupErrors({});
-    setError(null);
-
-    // Validate form data
-    const validation = SignUpSchema.safeParse(signupData);
-    if (!validation.success) {
-      const fieldErrors: Record<string, string> = {};
-      validation.error.issues.forEach((err) => {
-        if (err.path[0]) {
-          fieldErrors[err.path[0] as string] = err.message;
-        }
-      });
-      setSignupErrors(fieldErrors);
-      return;
-    }
-
-    startTransition(async () => {
-      const formData = new FormData();
-      Object.entries(signupData).forEach(([key, value]) => {
-        if (value) formData.append(key, value);
-      });
-
-      const res = await registerUser(formData);
-      
-      if (!res.ok) {
-        const fieldErrors: Record<string, string> = {};
-        if (res.errors?.fieldErrors) {
-          Object.entries(res.errors.fieldErrors).forEach(([key, messages]) => {
-            if (messages && messages[0]) {
-              fieldErrors[key] = messages[0];
-            }
-          });
-        }
-        if (res.errors?.formErrors?.[0]) {
-          setError(res.errors.formErrors[0]);
-        }
-        setSignupErrors(fieldErrors);
-        return;
-      }
-
-      // Preserve callbackUrl through the verify flow so the originating app gets the redirect after sign-in
-      if (res.meta?.requiresEmailVerification && res.meta.email) {
-        const verifyParams = new URLSearchParams({ email: res.meta.email });
-        if (callbackUrl) verifyParams.set('callbackUrl', callbackUrl);
-        router.push(`/verify?${verifyParams.toString()}`);
-        return;
-      }
-
-      setError(null);
-      setSignupErrors({});
-    });
-  };
-
-  const handleSignupDataChange = (field: keyof SignupData, value: string) => {
-    setSignupData({ ...signupData, [field]: value });
-  };
-
-  const handleSignupErrorClear = (field: string) => {
-    setSignupErrors({ ...signupErrors, [field]: '' });
-  };
-
-  const getTitle = () => {
-    if (step === 'email') return 'Sign in to ManuMu';
-    if (step === 'password') return email;
-    if (step === 'signup') return 'Create your account';
-    return 'Sign in to ManuMu';
-  };
-
-  const getSubtitle = () => {
-    if (step === 'password') return 'Enter your password';
-    if (step === 'signup') return 'Enter your information';
-    return undefined;
-  };
-
-  // Redirect authenticated users — to callbackUrl (OAuth flow) or dashboard
-  // Full-page navigation for callbackUrl ensures server-side session is
-  // available when the OAuth authorize page loads (router.replace fails
-  // silently with long absolute URLs containing encoded query strings).
-  useEffect(() => {
-    if (status === 'authenticated' && session?.user) {
-      if (callbackUrl) {
-        window.location.href = callbackUrl;
-      } else {
-        router.replace('/dashboard');
-      }
-    }
-  }, [status, session, router, callbackUrl]);
-
-  if (status === 'authenticated') {
-    return null;
-  }
-
-  // Show loading state while checking session
-  if (status === 'loading') {
+  if (status === "authenticated") return null;
+  if (status === "loading") {
     return (
-      <AuthShell
-        title="Loading..."
-        subtitle="Please wait"
-        animateOnChange={false}
-      >
-        <div className="flex items-center justify-center py-12">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-        </div>
+      <AuthShell title="Loading..." subtitle="Please wait" animateOnChange={false}>
+        <div className="flex items-center justify-center py-12" role="status">Loading…</div>
       </AuthShell>
     );
   }
 
-  // Show login form for unauthenticated users
   return (
     <AuthShell
-      title={getTitle()}
-      subtitle={getSubtitle()}
-      animateOnChange={shouldAnimate}
+      title={step === "email" ? "Sign in to ManuMu" : email}
+      subtitle={step === "password" ? "Enter your password" : undefined}
+      animateOnChange={animate}
       direction={directionRef.current}
     >
       <AnimatePresence mode="wait" custom={directionRef.current}>
-        {step === 'email' ? (
+        {step === "email" ? (
           <EmailStep
             email={email}
             error={error}
-            isPending={isPending}
+            isPending={pending}
             emailInputRef={emailInputRef}
             direction={directionRef.current}
-            onEmailChange={handleEmailChange}
-            onNext={handleEmailNext}
-            onGoToSignup={handleGoToSignup}
+            onEmailChange={(value) => { setEmail(value); setError(null); }}
+            onNext={next}
           />
-        ) : step === 'password' ? (
+        ) : (
           <PasswordStep
             password={password}
             error={error}
-            isPending={isPending}
+            isPending={pending}
             passwordInputRef={passwordInputRef}
             direction={directionRef.current}
-            onPasswordChange={handlePasswordChange}
-            onSubmit={handlePasswordSubmit}
-            onBack={handleBack}
-          />
-        ) : (
-          <SignupStep
-            signupData={signupData}
-            signupErrors={signupErrors}
-            error={error}
-            isPending={isPending}
-            emailInputRef={emailInputRef}
-            direction={directionRef.current}
-            onSignupDataChange={handleSignupDataChange}
-            onSignupErrorClear={handleSignupErrorClear}
-            onSubmit={handleSignupSubmit}
-            onBack={handleSignupBack}
+            onPasswordChange={(value) => { setPassword(value); setError(null); }}
+            onSubmit={submit}
+            onBack={() => { setPassword(""); setError(null); transitionTo("email", "backward"); }}
           />
         )}
       </AnimatePresence>
     </AuthShell>
   );
 }
-
