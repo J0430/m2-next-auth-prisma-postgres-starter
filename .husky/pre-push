@@ -19,6 +19,7 @@ test -n "$PUBLIC_KEY" || exit 1
 export NEXT_TELEMETRY_DISABLED="1"
 export CI="1"
 export DATABASE_URL="${PRE_PUSH_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/auth_e2e}"
+export PRE_PUSH_ADMIN_DATABASE_URL="${PRE_PUSH_ADMIN_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/postgres}"
 export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-local-pre-push-nextauth-secret-32chars}"
 export AUTH_URL="http://localhost:3000"
 export NEXTAUTH_URL="http://localhost:3000"
@@ -51,9 +52,16 @@ command -v psql >/dev/null 2>&1 || {
   echo "🔴 psql is required for pre-push built-auth E2E."
   exit 1
 }
-psql postgresql://postgres:postgres@localhost:5432/postgres \
+if ! psql "$PRE_PUSH_ADMIN_DATABASE_URL" -c 'SELECT 1' >/dev/null 2>&1; then
+  echo "🔴 Local Postgres is not reachable for pre-push built-auth E2E."
+  echo "   Start it with: brew services start postgresql@16"
+  echo "   Default expected admin URL: $PRE_PUSH_ADMIN_DATABASE_URL"
+  echo "   Override with PRE_PUSH_ADMIN_DATABASE_URL and PRE_PUSH_DATABASE_URL if your local role is not postgres/postgres."
+  exit 1
+fi
+psql "$PRE_PUSH_ADMIN_DATABASE_URL" \
   -tc "SELECT 1 FROM pg_database WHERE datname = 'auth_e2e'" | grep -q 1 \
-  || psql postgresql://postgres:postgres@localhost:5432/postgres -c 'CREATE DATABASE auth_e2e' \
+  || psql "$PRE_PUSH_ADMIN_DATABASE_URL" -c 'CREATE DATABASE auth_e2e' \
   || exit 1
 pnpm prisma:deploy || exit 1
 
