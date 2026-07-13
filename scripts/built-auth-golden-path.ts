@@ -49,14 +49,36 @@ function mergeCookies(...groups: string[][]): string {
 
 function startRateLimitStub(): Promise<ReturnType<typeof createServer>> {
   const server = createServer((request, response) => {
-    request.resume();
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ result: [99, 100] }));
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+    request.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+      const commandCount = countPipelineCommands(body);
+      response.writeHead(200, { 'content-type': 'application/json' });
+      if (request.url?.includes('/pipeline') || request.url?.includes('/multi-exec')) {
+        response.end(JSON.stringify(Array.from({ length: commandCount }, rateLimitAllowedResult)));
+        return;
+      }
+      response.end(JSON.stringify(rateLimitAllowedResult()));
+    });
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(RATE_LIMIT_PORT, '127.0.0.1', () => resolve(server));
   });
+}
+
+function countPipelineCommands(body: string): number {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return Array.isArray(parsed) ? Math.max(1, parsed.length) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function rateLimitAllowedResult(): { result: [number, number] } {
+  return { result: [99, 100] };
 }
 
 assertDisposableDatabaseUrl(process.env.DATABASE_URL);
