@@ -58,6 +58,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
       - run: pnpm test:coverage
 
   build-bundle:
@@ -133,6 +134,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build-bundle
+    env:
+      NEXTAUTH_URL: http://localhost:3000
+      APP_URL: http://localhost:3000
     services:
       postgres:
         image: postgres:16

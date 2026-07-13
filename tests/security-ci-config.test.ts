@@ -18,6 +18,7 @@ const StepSchema = z.object({
 const JobSchema = z.object({
   needs: z.union([z.string(), z.array(z.string())]).optional(),
   'timeout-minutes': z.number().int().positive().optional(),
+  env: z.record(z.string(), z.unknown()).optional(),
   services: z.record(z.string(), z.unknown()).optional(),
   steps: z.array(StepSchema),
   'continue-on-error': z.boolean().optional(),
@@ -141,7 +142,9 @@ describe('parallel CI contract', () => {
     expect(allCommands.filter((command) => command.includes('pnpm install --frozen-lockfile')).length)
       .toBe(Object.keys(ci.jobs).length);
     expect(commands(requiredJob(ci, 'build-bundle'))).toContain('pnpm build');
-    expect(commands(requiredJob(ci, 'test-coverage'))).toContain('pnpm test:coverage');
+    const coverageCommands = commands(requiredJob(ci, 'test-coverage'));
+    expect(coverageCommands).toContain('pnpm prisma:generate');
+    expect(coverageCommands).toContain('pnpm test:coverage');
     expect(allCommands.join('\n')).toContain('BUNDLE_BUDGET_KB');
     const e2eCommands = commands(requiredJob(ci, 'e2e')).join('\n');
     expect(e2eCommands).toContain('/api/healthz');
@@ -173,6 +176,10 @@ describe('parallel CI contract', () => {
     }
 
     const e2e = requiredJob(ci, 'e2e');
+    expect(e2e.env).toMatchObject({
+      NEXTAUTH_URL: 'http://localhost:3000',
+      APP_URL: 'http://localhost:3000',
+    });
     const start = e2e.steps.find((step) => step.name === 'Start downloaded built application');
     expect(start?.env).toMatchObject({
       OAUTH_JWT_PRIVATE_KEY: '${{ env.OAUTH_JWT_PRIVATE_KEY }}',

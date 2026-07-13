@@ -89,6 +89,7 @@ model User {
   accountLinkIntents        AccountLinkIntent[]
   adminMfaFactors           AdminMfaFactor[]
   adminCapabilityGrants     AdminCapabilityGrant[]
+  adminMfaLegacyExemption   AdminMfaLegacyExemption?
   adminBootstrapCompletedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -301,6 +302,14 @@ model AdminCapabilityGrant {
 
   @@index([userId, capability, revokedAt])
   @@map("admin_capability_grants")
+}
+
+model AdminMfaLegacyExemption {
+  userId String @id
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_mfa_legacy_exemptions")
 }
 
 /**

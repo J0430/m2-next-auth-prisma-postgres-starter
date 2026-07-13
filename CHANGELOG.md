@@ -38,6 +38,17 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
 
 - Aligned Vitest core, UI, and coverage packages on 3.2.6 so the coverage gate
   runs consistently with the supported local runtime.
+- Repaired clean-runner CI drift by generating Prisma Client in the coverage
+  job and pinning the E2E built-auth runtime to the local `NEXTAUTH_URL` /
+  `APP_URL` origin.
+- Reconciled the additive admin MFA legacy-exemption table with
+  `prisma/schema.prisma` so migration-readiness schema parity no longer
+  proposes dropping the immutable snapshot table.
+
+### Known External Blockers
+
+- Vercel project `manumu-auth` is on the Hobby plan, which does not support the
+  one-minute cron schedule currently declared in `vercel.json`.
 
 ---
 
