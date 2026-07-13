@@ -11,10 +11,9 @@ const ROOT = process.cwd();
 
 const DECISION_ONE_FILES = [
   "docs/build-packets/PACKET-02-gated-registration.md",
-  "docs/cursor-tasks/PACKET-02-gated-registration/TASK-018-transactional-email-outbox.md",
-  "docs/cursor-tasks/PACKET-02-gated-registration/TASK-027-invitation-registration-ux.md",
-  "docs/cursor-tasks/PACKET-02-gated-registration/TASK-028-security-verification.md",
-  "docs/cursor-tasks/PACKET-02-gated-registration/TASK-029-release-docs-and-production-verification.md",
+  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/PACKET-02-gated-registration.md",
+  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/CP-012-packet02-redline-apply-and-build.md",
+  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/TASK-027-invitation-registration-ux.md",
 ] as const;
 
 function read(relativePath: string): string {

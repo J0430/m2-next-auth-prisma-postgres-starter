@@ -76,7 +76,9 @@ try {
   }
   const location = callbackResponse.headers.get('location') ?? '';
   if (location.includes('/api/auth/error') || location.includes('error=')) {
-    throw new Error('Credentials callback rejected the disposable database fixture');
+    throw new Error(
+      `Credentials callback rejected the disposable database fixture: status=${callbackResponse.status} location=${location || '<missing>'}`,
+    );
   }
 
   const sessionCookies = cookiesFrom(callbackResponse);

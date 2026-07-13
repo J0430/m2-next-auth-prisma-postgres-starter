@@ -32,7 +32,7 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   smoke/E2E, and security jobs with branch-aware cancellation.
 - Made lint verification non-mutating and added blocking coverage and client
   bundle budgets.
-- Expanded automated coverage to 572 tests across 42 files.
+- Expanded automated coverage to 571 tests across 42 files.
 
 ### Fixed
 
@@ -41,6 +41,10 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
 - Repaired clean-runner CI drift by generating Prisma Client in the coverage
   job and pinning the E2E built-auth runtime to the local `NEXTAUTH_URL` /
   `APP_URL` origin.
+- Repaired the follow-up clean-runner failures by moving TASK-028 security
+  evidence off ignored `docs/cursor-tasks` files, generating Prisma Client in
+  the migration-readiness job before the TypeScript readiness script, and adding
+  redirect detail to built-auth credential callback failures.
 - Reconciled the additive admin MFA legacy-exemption table with
   `prisma/schema.prisma` so migration-readiness schema parity no longer
   proposes dropping the immutable snapshot table.

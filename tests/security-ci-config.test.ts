@@ -192,6 +192,7 @@ describe('parallel CI contract', () => {
     const migrationCommands = commands(migration).join('\n');
     expect(migration.services).toHaveProperty('postgres');
     expect(migrationCommands).toContain('CREATE DATABASE auth_shadow');
+    expect(migrationCommands).toContain('pnpm prisma:generate');
     expect(migrationCommands).toContain('pnpm migration:readiness:ci');
     expect(migrationCommands).toContain('pnpm test:db:gated-registration');
     expect(migrationCommands).not.toContain('APP_ROLLBACK_EVIDENCE_SECRET');

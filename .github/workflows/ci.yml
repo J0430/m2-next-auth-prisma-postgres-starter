@@ -249,6 +249,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:generate
       - run: psql postgresql://postgres:postgres@localhost:5432/postgres -c 'CREATE DATABASE auth_shadow'
       - name: Exercise clean apply and disposable schema down/up rehearsal
         run: pnpm migration:readiness:ci

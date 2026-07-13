@@ -184,9 +184,10 @@ pnpm prisma:deploy
 Current limitations:
 
 - `pnpm lint` verifies without mutation; use `pnpm lint:fix` for explicit fixes.
-- Current suite: 42 Vitest files / 572 tests.
-- CI clean-runner jobs generate Prisma Client before coverage and E2E runtime
-  checks, then compare committed migrations against `prisma/schema.prisma`.
+- Current suite: 42 Vitest files / 571 tests.
+- CI clean-runner jobs generate Prisma Client before coverage, migration
+  readiness, and E2E runtime checks, then compare committed migrations against
+  `prisma/schema.prisma`.
 - Coverage thresholds and Playwright E2E tests are not configured.
 - Vercel deployment on the current Hobby project cannot run the one-minute
   transactional outbox cron; use a Pro/Enterprise project or relax the cron
