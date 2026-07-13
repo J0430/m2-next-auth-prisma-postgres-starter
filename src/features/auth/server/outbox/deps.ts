@@ -12,11 +12,9 @@ import { sendInvitationEmail } from "./invitationEmail";
 import type { OutboxProcessorDeps } from "./types";
 
 function buildEnvInviteKeyring(): Map<number, string> {
-  const currentKeyVersion = Number(env.INVITE_DELIVERY_KEY_VERSION);
-  if (!Number.isSafeInteger(currentKeyVersion) || !env.INVITE_DELIVERY_ENCRYPTION_KEY) {
-    return new Map<number, string>();
-  }
-  return new Map([[currentKeyVersion, env.INVITE_DELIVERY_ENCRYPTION_KEY]]);
+  return new Map(Object.entries(env.INVITE_DELIVERY_ENCRYPTION_KEYS ?? {}).map(
+    ([version, key]) => [Number(version), key],
+  ));
 }
 
 export function createDefaultOutboxProcessorDeps(): OutboxProcessorDeps {

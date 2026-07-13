@@ -2,7 +2,7 @@
 
 Central authentication and OAuth/OIDC service for ManuMu Studio applications.
 
-**Version:** 1.9.0
+**Version:** 1.9.1
 **Runtime:** Next.js 15 App Router · TypeScript 5.9 · NextAuth v4 · Prisma 6 · PostgreSQL
 **Production URL:** [auth.manumustudio.com](https://auth.manumustudio.com)
 
@@ -18,25 +18,25 @@ Central authentication and OAuth/OIDC service for ManuMu Studio applications.
 - Authorization Code flow with consent, mandatory PKCE S256, access tokens, and ID tokens.
 - OIDC discovery, JWKS, UserInfo, and RP-initiated logout.
 - Prisma migrations for PostgreSQL and Neon-compatible deployment.
-- Packet 02 invite-gated registration foundation: account status lifecycle (INACTIVE/ACTIVE/SUSPENDED/DELETED), invite lifecycle service with hash-only token storage, atomic invite registration and activation service, QStash-ready transactional email outbox worker with claim-token fencing and encrypted invite delivery, immutable audit events, registration-session handles, admin MFA factor state, Cloudflare Turnstile verification, shared admission helpers, and seven-surface rate-limit wiring.
+- Invitation-only registration foundation: account status lifecycle (INACTIVE/ACTIVE/SUSPENDED/DELETED), invite lifecycle service with hash-only token storage, atomic invite registration and activation service, QStash-ready transactional email outbox worker with claim-token fencing and encrypted invite delivery, immutable audit events, registration-session handles, credential-backed admin TOTP elevation with explicit capability grants, Cloudflare Turnstile verification, shared admission helpers, and seven-surface rate-limit wiring.
 
 ## Security Controls
 
 The following hardening controls are active in production:
 
 - Upstash Redis rate limiting is required and fail-closed; the app refuses to start without it.
-- Packet 02 admission helpers add shared Turnstile verification, CSRF/parity helpers, and independent limiter dimensions for registration, invite redemption, login, password reset, OTP verify, fragment exchange, and admin operations.
-- Packet 02 outbox delivery uses an internal worker route with fail-closed bearer-secret auth, admission limiter wiring, claim-token fencing, encrypted invite payloads, and fragment-only invite links.
-- Social sign-in hardening: unlinked OAuth first sign-in and silent same-email account linking are denied; explicit account linking is reserved for a future ceremony.
+- Admission helpers add shared Turnstile verification, CSRF/parity helpers, and independent limiter dimensions for registration, invite redemption, login, password reset, OTP verify, fragment exchange, and admin operations.
+- Invitation email delivery uses an internal worker route with fail-closed bearer-secret auth, admission limiter wiring, claim-token fencing, encrypted invite payloads, and fragment-only invite links.
+- Social sign-in hardening: unlinked OAuth first sign-in and silent same-email account linking are denied. Account settings now provide an explicit, provider-bound linking ceremony; stale social-only sessions reauthenticate through an existing linked provider before starting a separate link.
 - PKCE S256 is mandatory for every authorization request; `plain` is rejected.
 - Authorization codes are consumed atomically, preventing replay races.
 - Verification OTPs are stored as HMAC-SHA256 keyed with `OTP_HMAC_SECRET`.
 - Self-service signup is disabled in production via `SELF_SERVICE_REGISTRATION_ENABLED=false`.
 - CI enforces a blocking dependency audit (`pnpm audit --audit-level=high`) and a full-history secret scan.
 
-Remaining work: invite/allowlist runtime flows on top of the new foundation,
-explicit social account linking, bcrypt cost increase, observability, and
-pairwise subjects. See [Security](docs/SECURITY.md).
+Remaining work includes production provider callback configuration and browser
+proof for explicit account linking, plus bcrypt cost increase, observability,
+and pairwise subjects. See [Security](docs/SECURITY.md).
 
 Historical security review records live in `docs/audits/` and `docs/incidents/`.
 
@@ -70,6 +70,7 @@ src/
 │   ├── (public)/                 # Public authentication entry
 │   ├── (auth)/                   # Verify, reset, onboarding
 │   ├── api/auth/                 # NextAuth and OTP APIs
+│   ├── api/account/link/         # Dedicated explicit-link start/callback routes
 │   ├── api/internal/             # Internal worker endpoints
 │   ├── dashboard/                # Protected account management
 │   ├── oauth/                    # Authorize, token, UserInfo, logout
@@ -86,6 +87,7 @@ src/
 │           ├── actions/              # Server actions: sign-in, sign-up, reset
 │           ├── admission/            # CSRF, enumeration-parity, admission types
 │           ├── invites/              # Invite lifecycle: issue, lookup, redeem, revoke
+│           ├── linking/              # Provider-bound state/PKCE account-link ceremony
 │           ├── oauth/                # OAuth/OIDC authorization, token, claims, PKCE
 │           ├── outbox/               # Transactional email outbox worker and crypto
 │           ├── providers/            # NextAuth provider configuration
@@ -95,13 +97,12 @@ src/
 └── lib/                          # Env, Prisma, rate limits, validation
 
 prisma/
-├── schema.prisma              # Includes Packet 02 gated-registration foundation models
+├── schema.prisma              # Includes invitation-only registration models
 └── migrations/                 # Includes reversible gated-registration foundation SQL
 
 tests/                          # Vitest suites, including schema/security invariants
 
 docs/
-├── ai/                           # Project methodology context
 ├── api/                          # API contracts
 ├── audits/                       # Point-in-time audit reports
 ├── incidents/                    # Active/resolved incidents
@@ -153,7 +154,8 @@ Required in production:
 - `TURNSTILE_EXPECTED_HOSTNAME`
 - `TURNSTILE_EXPECTED_ACTION`
 - `INTERNAL_WORKER_AUTH_SECRET`
-- `INVITE_DELIVERY_ENCRYPTION_KEY`
+- `QSTASH_URL`, `QSTASH_TOKEN`
+- `INVITE_DELIVERY_ENCRYPTION_KEYS` (versioned JSON keyring), `INVITE_DELIVERY_KEY_VERSION`
 - `INVITE_DELIVERY_KEY_VERSION`
 - `ADMIN_MFA_SECRET_ENCRYPTION_KEYS`
 - `ADMIN_MFA_SECRET_KEY_VERSION`
@@ -181,11 +183,22 @@ pnpm prisma:deploy
 
 Current limitations:
 
-- `pnpm lint` runs ESLint with `--fix`; CI should become read-only.
-- Current suite: 19 Vitest files / 220 tests.
+- `pnpm lint` verifies without mutation; use `pnpm lint:fix` for explicit fixes.
+- Current suite: 42 Vitest files / 568 tests.
+- The pre-push hook runs lint, typecheck, coverage, production build, the
+  disposable gated-registration DB integration against local `auth_ci`, and the
+  built-auth E2E path against local `auth_e2e`.
+- `pnpm e2e:built-auth` is guarded to refuse non-local databases; run it only
+  with `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/auth_e2e`
+  and a local built app already listening on port 3000.
+- CI clean-runner jobs generate Prisma Client before coverage, migration
+  readiness, and E2E runtime checks, then compare committed migrations against
+  `prisma/schema.prisma`.
 - Coverage thresholds and Playwright E2E tests are not configured.
+- Vercel Hobby deployment uses a once-daily transactional outbox cron fallback;
+  upgrade to Pro/Enterprise before restoring once-per-minute polling.
 - The `smoke` script targets `/api/healthz`, which will be implemented during
-  the LSA parity work.
+  the account-linking parity work.
 
 See [Testing](docs/TESTING.md) and [Contributing](CONTRIBUTING.md).
 

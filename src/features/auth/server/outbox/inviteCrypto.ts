@@ -48,6 +48,22 @@ export function createInviteTokenDecryptor(keyring: ReadonlyMap<number, string>)
   };
 }
 
+type OutboxKeyVersionReader = {
+  outboxEmail: { findMany(input: { where: { keyVersion: { not: null } }; distinct: ["keyVersion"]; select: { keyVersion: true } }): Promise<Array<{ keyVersion: number | null }>> };
+};
+
+export async function validateStoredInviteKeyVersions(
+  reader: OutboxKeyVersionReader,
+  keyring: ReadonlyMap<number, string>,
+): Promise<void> {
+  const rows = await reader.outboxEmail.findMany({
+    where: { keyVersion: { not: null } }, distinct: ["keyVersion"], select: { keyVersion: true },
+  });
+  for (const row of rows) {
+    if (row.keyVersion === null || !keyring.has(row.keyVersion)) throw new Error("INVITE_DELIVERY_KEY_VERSION_MISSING");
+  }
+}
+
 export function buildInviteAcceptUrl(rawToken: string, baseUrl: string): string {
   const url = new URL("/invite", baseUrl);
   url.hash = `token=${encodeURIComponent(rawToken)}`;

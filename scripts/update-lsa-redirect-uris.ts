@@ -44,8 +44,10 @@ async function main() {
 }
 
 main()
-  .catch((error) => {
-    console.error("❌ Failed to update OAuth client:", error);
+  .catch(() => {
+    console.error("oauth_client_redirect_update_failed", {
+      code: "OAUTH_CLIENT_REDIRECT_UPDATE_FAILED",
+    });
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

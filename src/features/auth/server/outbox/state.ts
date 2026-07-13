@@ -18,6 +18,9 @@ function getSafeErrorCode(error: unknown): string {
   if (error instanceof Error && error.message === "EMAIL_SEND_FAILED") {
     return "EMAIL_SEND_FAILED";
   }
+  if (error instanceof Error && error.message === "EMAIL_SEND_TIMEOUT") {
+    return "EMAIL_SEND_TIMEOUT";
+  }
   if (error instanceof Error && error.message === "OUTBOX_RECIPIENT_NOT_FOUND") {
     return "OUTBOX_RECIPIENT_NOT_FOUND";
   }
@@ -30,9 +33,11 @@ function getSafeErrorCode(error: unknown): string {
   return "OUTBOX_DELIVERY_FAILED";
 }
 
-function calculateBackoff(attempts: number, now: Date): Date {
-  const delayMinutes = Math.min(60, 2 ** Math.max(0, attempts - 1));
-  return addMilliseconds(now, delayMinutes * 60 * 1000);
+function calculateBackoff(attempts: number, now: Date, rowId: string): Date {
+  const baseMinutes = Math.min(60, 2 ** Math.max(0, attempts - 1));
+  const jitterSeed = [...rowId].reduce((sum, character) => sum + character.charCodeAt(0), attempts);
+  const jitterRatio = (jitterSeed % 26) / 100;
+  return addMilliseconds(now, baseMinutes * (1 + jitterRatio) * 60 * 1000);
 }
 
 export async function claimDueOutboxEmail(
@@ -76,6 +81,7 @@ export async function finalizeOutboxEmailSent(
       claimToken: null,
       leaseExpiresAt: null,
       inviteCiphertext: null,
+      keyVersion: null,
       clearedAt: now,
     },
   });
@@ -88,7 +94,7 @@ export async function recordOutboxEmailFailure(
   claimToken: string,
   error: unknown,
   deps: OutboxStateDeps
-): Promise<boolean> {
+): Promise<"terminal" | "retry" | "stale"> {
   const now = deps.now();
   const attempts = row.attempts + 1;
   const isTerminal = attempts >= MAX_OUTBOX_ATTEMPTS;
@@ -106,18 +112,20 @@ export async function recordOutboxEmailFailure(
         failedAt: now,
         nextAttemptAt: null,
         inviteCiphertext: null,
+        keyVersion: null,
         clearedAt: now,
       }
     : {
         ...sharedData,
         status: "PENDING" as const,
-        nextAttemptAt: calculateBackoff(attempts, now),
+        nextAttemptAt: calculateBackoff(attempts, now, row.id),
       };
 
-  await deps.db.updateOutboxEmailMany({
+  const result = await deps.db.updateOutboxEmailMany({
     where: { id: row.id, claimToken, status: "CLAIMED" },
     data,
   });
 
-  return isTerminal;
+  if (result.count !== 1) return "stale";
+  return isTerminal ? "terminal" : "retry";
 }

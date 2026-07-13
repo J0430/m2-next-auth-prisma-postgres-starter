@@ -6,8 +6,6 @@ export const outboxEmailEventTypes = ["EMAIL_VERIFICATION", "INVITATION_DELIVERY
 export const OutboxWorkerMessageSchema = z
   .object({
     id: z.string().min(1),
-    eventType: z.enum(outboxEmailEventTypes).optional(),
-    keyVersion: z.string().min(1).optional(),
   })
   .strict();
 

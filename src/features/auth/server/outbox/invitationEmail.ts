@@ -1,15 +1,16 @@
 // Invitation email delivery for Packet 02 outbox events.
-import { Resend } from "resend";
+import { z } from "zod";
 import { env } from "@/lib/env";
 
 const resendKey = env.RESEND_API_KEY;
 const from = env.RESEND_FROM || "Acme <onboarding@resend.dev>";
-const resend = resendKey ? new Resend(resendKey) : null;
+const ResendResponseSchema = z.object({ id: z.string().min(1) });
 
 export type SendInvitationEmailArgs = {
   to: string;
   inviteUrl: string;
   name?: string;
+  signal?: AbortSignal;
 };
 
 function buildInvitationText(args: SendInvitationEmailArgs): string {
@@ -23,20 +24,18 @@ function buildInvitationHtml(args: SendInvitationEmailArgs): string {
 }
 
 export async function sendInvitationEmail(args: SendInvitationEmailArgs): Promise<void> {
-  if (!resend) {
-    if (process.env.NODE_ENV === "development") {
-      console.log("[DEV EMAIL] Invitation delivery suppressed; token-bearing URL not logged.");
-    }
-    return;
+  if (!resendKey) {
+    throw new Error("EMAIL_PROVIDER_NOT_CONFIGURED");
   }
 
-  const { error } = await resend.emails.send({
-    from,
-    to: [args.to],
-    subject: "You're invited to ManuMu Studio",
-    text: buildInvitationText(args),
-    html: buildInvitationHtml(args),
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST", signal: args.signal,
+    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from, to: [args.to], subject: "You're invited to ManuMu Studio",
+      text: buildInvitationText(args), html: buildInvitationHtml(args),
+    }),
   });
-
-  if (error) throw new Error("EMAIL_SEND_FAILED");
+  const parsed = ResendResponseSchema.safeParse(await response.json().catch(() => null));
+  if (!response.ok || !parsed.success) throw new Error("EMAIL_SEND_FAILED");
 }

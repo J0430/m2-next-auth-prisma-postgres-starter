@@ -6,6 +6,7 @@ const ORIGINAL_ENV = { ...process.env };
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     verificationToken: {
+      upsert: vi.fn(),
       create: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
@@ -82,19 +83,22 @@ describe('OTP verification tokens', () => {
     const { prisma } = await import('@/lib/prisma');
     const prismaMock = prisma as unknown as {
       $transaction: Mock;
-      verificationToken: { deleteMany: Mock; create: Mock };
+      verificationToken: { upsert: Mock };
     };
 
-    prismaMock.$transaction.mockResolvedValue([]);
+    prismaMock.verificationToken.upsert.mockResolvedValue({});
 
     const result = await createVerificationToken('User@Example.com');
 
-    expect(prismaMock.verificationToken.deleteMany).toHaveBeenCalledWith({
+    expect(prismaMock.verificationToken.upsert).toHaveBeenCalledWith({
       where: { identifier: 'user@example.com' },
-    });
-    expect(prismaMock.verificationToken.create).toHaveBeenCalledWith({
-      data: {
+      create: {
         identifier: 'user@example.com',
+        token: 'hmac:123456',
+        expires: new Date(NOW.getTime() + 10 * 60 * 1000),
+        attempts: 0,
+      },
+      update: {
         token: 'hmac:123456',
         expires: new Date(NOW.getTime() + 10 * 60 * 1000),
         attempts: 0,
@@ -213,7 +217,7 @@ describe('OTP resend flow', () => {
     const { prisma } = await import('@/lib/prisma');
     const prismaMock = prisma as unknown as {
       user: { findUnique: Mock };
-      verificationToken: { findFirst: Mock; deleteMany: Mock; create: Mock };
+      verificationToken: { findFirst: Mock; upsert: Mock };
       $transaction: Mock;
     };
     const { sendVerificationEmail } = await import('@/features/auth/lib/email/provider');
@@ -222,7 +226,7 @@ describe('OTP resend flow', () => {
     prismaMock.verificationToken.findFirst.mockResolvedValue({
       expires: new Date(NOW.getTime() + 5 * 60 * 1000),
     });
-    prismaMock.$transaction.mockResolvedValue([]);
+    prismaMock.verificationToken.upsert.mockResolvedValue({});
 
     await expect(resendVerificationToken('User@Example.com')).resolves.toEqual({ ok: true });
     expect(sendVerificationEmail).toHaveBeenCalledWith({

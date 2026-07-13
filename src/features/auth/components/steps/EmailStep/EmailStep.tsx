@@ -32,7 +32,6 @@ export default function EmailStep({
   direction,
   onEmailChange,
   onNext,
-  onGoToSignup,
 }: EmailStepProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -106,22 +105,6 @@ export default function EmailStep({
           className="providerButtonDark"
         />
       </div>
-
-      {/* Create account link */}
-      <div className={styles.createAccount}>
-        <span className={styles.createAccountText}>New to ManuMu? </span>
-        <a 
-          href="#" 
-          className={styles.createAccountLink} 
-          onClick={(e) => {
-            e.preventDefault();
-            onGoToSignup();
-          }}
-        >
-          Create an account
-        </a>
-      </div>
     </motion.div>
   );
 }
-

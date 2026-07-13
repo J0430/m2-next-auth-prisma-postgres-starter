@@ -7,6 +7,7 @@ import type {
   OutboxUpdateManyArgs,
   OutboxUpdateResult,
   RecipientUser,
+  InviteRecipient,
 } from "./types";
 
 export const CLAIM_DUE_OUTBOX_EMAIL_SQL = `
@@ -21,8 +22,9 @@ SELECT
 FROM "public"."outbox_emails"
 WHERE "id" = $1
   AND "status" IN ('PENDING', 'CLAIMED')
-  AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= $2)
-  AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= $3)
+  AND "availableAt" <= ($2 AT TIME ZONE 'UTC')
+  AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= ($2 AT TIME ZONE 'UTC'))
+  AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= ($3 AT TIME ZONE 'UTC'))
 ORDER BY "createdAt" ASC
 FOR UPDATE SKIP LOCKED
 LIMIT 1
@@ -39,6 +41,12 @@ type PrismaOutboxClient = {
       select: { id: true; email: true; name: true; status: true };
     }): Promise<RecipientUser | null>;
   };
+  invite: {
+    findUnique(args: {
+      where: { id: string };
+      select: { id: true; normalizedEmail: true; status: true; expiresAt: true };
+    }): Promise<InviteRecipient | null>;
+  };
 };
 
 function createPrismaTransactionClient(tx: PrismaOutboxClient): OutboxTransactionClient {
@@ -51,6 +59,10 @@ function createPrismaTransactionClient(tx: PrismaOutboxClient): OutboxTransactio
         where: { id },
         select: { id: true, email: true, name: true, status: true },
       }),
+    findInviteRecipient: (id) => tx.invite.findUnique({
+      where: { id },
+      select: { id: true, normalizedEmail: true, status: true, expiresAt: true },
+    }),
   };
 }
 

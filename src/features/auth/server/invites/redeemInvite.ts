@@ -5,8 +5,37 @@ import type {
   RedeemInviteResult,
   ResolvedInvite,
 } from "./invite.types";
-import { alertInviteReuse } from "./reuseAlert";
 import { normalizeInviteEmail } from "./token";
+
+export class InviteRedemptionContext {
+  readonly redeemerUserId: string;
+  readonly invite: InviteTransactionClient["invite"];
+  readonly #signalReuseDetected: (inviteId: string) => void;
+
+  private constructor(client: InviteTransactionClient, signalReuseDetected: (inviteId: string) => void) {
+    this.redeemerUserId = client.redeemerUserId;
+    this.invite = client.invite;
+    this.#signalReuseDetected = signalReuseDetected;
+  }
+
+  static create(
+    client: InviteTransactionClient,
+    signalReuseDetected: (inviteId: string) => void,
+  ): InviteRedemptionContext {
+    return new InviteRedemptionContext(client, signalReuseDetected);
+  }
+
+  signalReuseDetected(inviteId: string): void {
+    return this.#signalReuseDetected(inviteId);
+  }
+}
+
+export function createInviteRedemptionContext(
+  client: InviteTransactionClient,
+  signalReuseDetected: (inviteId: string) => void,
+): InviteRedemptionContext {
+  return InviteRedemptionContext.create(client, signalReuseDetected);
+}
 
 function buildResolvedWhere(
   resolvedInvite: ResolvedInvite,
@@ -18,10 +47,10 @@ function buildResolvedWhere(
   return { id: resolvedInvite.inviteId };
 }
 
-async function auditRedeemedInviteReuse(
-  tx: InviteTransactionClient,
+async function findRedeemedInviteReuse(
+  tx: InviteRedemptionContext,
   where: { id?: string; tokenHash?: Buffer },
-): Promise<void> {
+): Promise<string | null> {
   const invite = await tx.invite.findFirst({
     where: {
       ...where,
@@ -39,39 +68,17 @@ async function auditRedeemedInviteReuse(
     },
   });
 
-  if (!invite) return;
-
-  await tx.auditEvent.create({
-    data: {
-      action: "invite.reuse_detected",
-      targetType: "Invite",
-      targetId: invite.id,
-      metadata: {
-        inviteStatus: invite.status,
-      },
-    },
-  });
-  await alertInviteReuse(invite.id);
+  return invite?.id ?? null;
 }
 
 export async function redeemInviteInTx(
-  tx: InviteTransactionClient,
+  tx: InviteRedemptionContext,
   resolvedInvite: ResolvedInvite,
   expectedNormalizedEmail: string | null,
 ): Promise<RedeemInviteResult> {
-  if (expectedNormalizedEmail === null) {
-    return { ok: false };
-  }
-
-  const normalizedEmail = normalizeInviteEmail(expectedNormalizedEmail);
-  const user = await tx.user.findUnique({
-    where: { email: normalizedEmail },
-    select: { id: true },
-  });
-
-  if (!user) {
-    return { ok: false };
-  }
+  const normalizedEmail = expectedNormalizedEmail === null
+    ? null
+    : normalizeInviteEmail(expectedNormalizedEmail);
 
   const now = new Date();
   const where = buildResolvedWhere(resolvedInvite);
@@ -85,12 +92,15 @@ export async function redeemInviteInTx(
     data: {
       status: "REDEEMED",
       redeemedAt: now,
-      redeemedByUserId: user.id,
+      redeemedByUserId: tx.redeemerUserId,
     },
   });
 
   if (redeemed.count !== 1) {
-    await auditRedeemedInviteReuse(tx, where);
+    const reuseInviteId = await findRedeemedInviteReuse(tx, where);
+    if (reuseInviteId) {
+      tx.signalReuseDetected(reuseInviteId);
+    }
     return { ok: false };
   }
 
@@ -112,7 +122,7 @@ export async function redeemInviteInTx(
   });
 
   if (!invite || invite.status !== "REDEEMED" || !invite.redeemedAt) {
-    return { ok: false };
+    throw new Error("INVITE_REDEMPTION_INVARIANT");
   }
 
   return { ok: true, invite };

@@ -1,8 +1,8 @@
 /**
  * Email sender for password reset flow
  *
- * Uses Resend for email delivery in production, with console logging
- * fallback for development when Resend is not configured.
+ * Uses Resend for email delivery in production, with a redacted simulated
+ * delivery event in development when Resend is not configured.
  *
  * @module auth/server/reset/sendResetEmail
  */
@@ -41,13 +41,13 @@ export async function sendPasswordResetEmail({
   const text = getPasswordResetEmailText({ name, resetUrl, ttlMinutes });
   const html = resetEmailHtml({ name, resetUrl, ttlMinutes });
 
-  // Environment-aware logging (errors always logged for production debugging)
+  // Development diagnostics contain stable event codes only.
   const isDevelopment = process.env.NODE_ENV === "development";
   const log = isDevelopment ? console.log : () => {};
 
   // Production: send via Resend
   if (resend) {
-    const { data, error } = await resend.emails.send({
+    const { error } = await resend.emails.send({
       from,
       to: Array.isArray(to) ? to : [to],
       subject,
@@ -56,14 +56,20 @@ export async function sendPasswordResetEmail({
     });
 
     if (error) {
-      console.error("[Resend] Password reset email error:", error);
+      console.error("auth.password_reset_delivery_failed", {
+        code: "EMAIL_SEND_FAILED",
+      });
       throw new Error("EMAIL_SEND_FAILED");
     }
 
-    log("[Resend] Password reset email sent, id:", data?.id);
+    log("auth.password_reset_delivery_succeeded", {
+      code: "PASSWORD_RESET_EMAIL_SENT",
+    });
     return;
   }
 
-  // Development fallback: log to console
-  log("[DEV EMAIL] Password Reset\nTo:", to, "\nSubject:", subject, "\n\n", text);
+  // Development fallback preserves simulated delivery without exposing content.
+  log("auth.password_reset_delivery_simulated", {
+    code: "PASSWORD_RESET_EMAIL_SIMULATED",
+  });
 }

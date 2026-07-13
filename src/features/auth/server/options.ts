@@ -23,7 +23,7 @@ import { env } from "@/lib/env";
 import { buildAdmissionRateLimitChecks, getClientIp, rateLimit, type HeaderSource } from "@/lib/rateLimit";
 import { allowSocialSignIn } from "@/features/auth/server/social/signInGate";
 import { gatedPrismaAdapter } from "@/features/auth/server/social/gatedPrismaAdapter";
-import { createGenericAdmissionFailure, padAdmissionTiming } from "./admission";
+import { createGenericAdmissionFailure, monotonicNow, padAdmissionTiming } from "./admission";
 
 const DUMMY_PASSWORD_HASH = "$2a$10$7EqJtq98hPqEX7fNZaFWoOhi.McZTpBdWnB7Rso8yX3i.Yx5x2m6e";
 
@@ -93,7 +93,7 @@ export const authOptions: NextAuthOptions = {
        * @throws {Error} "EMAIL_NOT_VERIFIED" if email not verified
        */
       async authorize(credentials, req) {
-        const startedAtMs = Date.now();
+        const startedAtMs = monotonicNow();
         const rejectWithParity = async () => {
           void createGenericAdmissionFailure(401);
           await padAdmissionTiming(startedAtMs);
@@ -176,7 +176,7 @@ export const authOptions: NextAuthOptions = {
      * @param {User} params.user - User object (only on initial sign-in)
      * @returns {Promise<JWT>} Augmented JWT token
      */
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       // On initial sign-in, user object is provided
       if (user) {
         // Persist user ID and role in token for session hydration
@@ -185,21 +185,27 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name ?? token.name;
         token.email = user.email ?? token.email;
         token.sessionVersion = user.sessionVersion ?? 0;
+        token.lastAuthAt = Date.now();
+        token.authProvider = account?.provider;
       }
       if (token.uid) {
         const dbUser = await prisma.user.findUnique({
           where: { id: token.uid },
-          select: { status: true, sessionVersion: true },
+          select: { status: true, sessionVersion: true, role: true },
         });
         const tokenVersion = getSessionVersion(token.sessionVersion);
         if (!dbUser || dbUser.status !== "ACTIVE" || dbUser.sessionVersion !== tokenVersion) {
           token.authRejected = true;
           token.uid = undefined;
           token.role = undefined;
+          token.sessionVersion = undefined;
+          token.lastAuthAt = undefined;
+          token.authProvider = undefined;
           return token;
         }
         token.authRejected = false;
         token.sessionVersion = dbUser.sessionVersion;
+        token.role = normalizeRole(dbUser.role);
       }
       return token;
     },
@@ -220,11 +226,17 @@ export const authOptions: NextAuthOptions = {
         if (token.authRejected || !token.uid) {
           session.user.id = "";
           session.user.role = undefined;
+          session.user.sessionVersion = 0;
+          session.lastAuthAt = undefined;
+          session.authProvider = undefined;
           return session;
         }
         // Hydrate session with custom fields from JWT
         session.user.id = token.uid ?? "";
         session.user.role = token.role ?? "USER";
+        session.user.sessionVersion = getSessionVersion(token.sessionVersion);
+        session.lastAuthAt = typeof token.lastAuthAt === "number" ? token.lastAuthAt : undefined;
+        session.authProvider = token.authProvider;
         session.user.name = token.name ?? session.user.name ?? undefined;
         session.user.email = token.email ?? session.user.email ?? undefined;
       }

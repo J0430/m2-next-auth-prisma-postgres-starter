@@ -5,13 +5,25 @@ import { createSessionToken, getSessionCookieName } from "@/features/auth/server
 import { prisma } from "@/lib/prisma";
 import { otpVerifySchema } from "@/lib/validation/verify";
 import { buildAdmissionRateLimitChecks, getClientIp, rateLimit } from "@/lib/rateLimit";
+import { monotonicNow, padAdmissionTiming } from "@/features/auth/server/admission";
+
+const OTP_DENIAL_STATUS = 400;
+
+async function rejectWithParity(startedAtMs: number): Promise<NextResponse> {
+  await padAdmissionTiming(startedAtMs);
+  return NextResponse.json(
+    { ok: false, reason: "verification-failed" },
+    { status: OTP_DENIAL_STATUS },
+  );
+}
 
 export async function POST(req: Request) {
+  const startedAtMs = monotonicNow();
   const body = await req.json().catch(() => ({}));
   const parsed = otpVerifySchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, reason: "bad-request" }, { status: 400 });
+    return rejectWithParity(startedAtMs);
   }
 
   const ip = getClientIp(req.headers);
@@ -34,7 +46,7 @@ export async function POST(req: Request) {
   );
 
   if (!result.ok) {
-    return NextResponse.json(result, { status: 400 });
+    return rejectWithParity(startedAtMs);
   }
 
   const normalizedEmail = parsed.data.email.toLowerCase().trim();
@@ -44,7 +56,7 @@ export async function POST(req: Request) {
   });
 
   if (!user || user.status !== "ACTIVE") {
-    return NextResponse.json({ ok: false, reason: "user-not-found" }, { status: 404 });
+    return rejectWithParity(startedAtMs);
   }
 
   const sessionToken = await createSessionToken(user);

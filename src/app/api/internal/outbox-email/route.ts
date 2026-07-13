@@ -1,7 +1,12 @@
 // Internal transactional email outbox worker endpoint.
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { processOutboxEmailMessage, OutboxWorkerMessageSchema } from "@/features/auth/server/outbox";
+import {
+  processOutboxEmailMessage,
+  drainDueOutboxEmails,
+  runRegistrationSessionCleanup,
+  OutboxWorkerMessageSchema,
+} from "@/features/auth/server/outbox";
 import { env } from "@/lib/env";
 import { buildAdmissionRateLimitChecks, getClientIp, rateLimit } from "@/lib/rateLimit";
 
@@ -67,5 +72,24 @@ export async function POST(req: Request): Promise<NextResponse> {
   if (!(await passesWorkerRateLimit(req))) return unauthorizedResponse();
 
   await processOutboxEmailMessage(parsed.data);
+  await runRegistrationSessionCleanup();
   return NextResponse.json({ ok: true });
+}
+
+export async function GET(req: Request): Promise<NextResponse> {
+  const workerSecret = extractBearerSecret(req.headers);
+  if (!timingSafeSecretEquals(workerSecret, env.INTERNAL_WORKER_AUTH_SECRET)) {
+    return unauthorizedResponse();
+  }
+  if (!(await passesWorkerRateLimit(req))) return unauthorizedResponse();
+
+  const [delivery, deleted] = await Promise.all([
+    drainDueOutboxEmails(),
+    runRegistrationSessionCleanup(),
+  ]);
+  if (delivery.batchFull) console.warn("OUTBOX_CRON_BATCH_FULL");
+  return NextResponse.json({
+    ok: true, deleted, processed: delivery.processed,
+    batchFull: delivery.batchFull, deadlineExceeded: delivery.deadlineExceeded,
+  });
 }

@@ -36,15 +36,21 @@ export async function changePassword(formData: FormData): Promise<AccountActionR
 
   // Fetch user and verify current password
   try {
-    const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { password: true } });
-    if (!user?.password) return { ok: false, errors: { formErrors: ['No password set for this account'] } };
+    const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { passwordHash: true } });
+    if (!user?.passwordHash) return { ok: false, errors: { formErrors: ['No password set for this account'] } };
 
-    const valid = await bcrypt.compare(data.currentPassword, user.password);
+    const valid = await bcrypt.compare(data.currentPassword, user.passwordHash);
     if (!valid) return { ok: false, errors: { fieldErrors: { currentPassword: ['Current password is incorrect'] } } };
 
     // Hash and update
     const hash = await bcrypt.hash(data.newPassword, 10);
-    await prisma.user.update({ where: { id: session.user.id }, data: { password: hash } });
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: session.user.id },
+        data: { passwordHash: hash, lastStrongAuthAt: null, sessionVersion: { increment: 1 } },
+      }),
+      prisma.session.deleteMany({ where: { userId: session.user.id } }),
+    ]);
     return { ok: true };
   } catch {
     return { ok: false, errors: { formErrors: ['Failed to change password'] } };

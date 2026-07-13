@@ -1,7 +1,7 @@
 # Security
 
-**Version:** 1.9.0
-**Last Updated:** 2026-06-21
+**Version:** 1.9.1
+**Last Updated:** 2026-07-12
 **Current Status:** Security hardening controls implemented; production verification pending.
 
 ## Security Posture
@@ -133,22 +133,24 @@ public document describes the current implemented controls and known risks.
 ### Operational Gaps
 
 - Turnstile verification helpers exist, but the public registration runtime has not consumed them yet.
-- Explicit social account linking ceremony is not implemented yet; new social
-  links remain denied until an explicit linking ceremony is implemented.
+- Explicit social account linking is implemented with authenticated CSRF-protected
+  start routes, hash-only state, S256 PKCE, exact current-session generation
+  binding, provider-subject identity, and transactional session invalidation.
+  Provider-dashboard and production-browser verification remain pending.
 - No structured application logger.
 - No Sentry/error-tracking integration.
 - No request correlation IDs or alerting.
 - No coverage thresholds, E2E tests, or health endpoint.
-- Gated registration runtime is partially implemented; the Packet 02 schema, invite lifecycle, transactional outbox worker, atomic invite registration service, and admission-control foundation exist, and the signup kill switch (`SELF_SERVICE_REGISTRATION_ENABLED=false`) remains the production guard until the remaining public gate surfaces ship.
+- Invitation-only registration is partially implemented; the schema, invite lifecycle, transactional outbox worker, atomic invite registration service, and admission controls exist, and the signup kill switch (`SELF_SERVICE_REGISTRATION_ENABLED=false`) remains the production guard until the remaining public surfaces ship.
 - Pairwise subjects not yet implemented.
 
 ## Control Matrix
 
-| Area | Current (1.9.0) | Required Next State |
+| Area | Current (1.9.1) | Required Next State |
 |------|-----------------|---------------------|
-| Registration | Kill switch plus Packet 02 schema, invite lifecycle, transactional outbox worker, and admission-control foundation | Invite/allowlist runtime gate |
-| Account linking | Social JIT and same-email silent linking denied; existing linked active social accounts can sign in | Explicit both-factor linking ceremony |
-| Rate limits | Upstash mandatory, OAuth endpoints covered, Packet 02 seven-surface admission dimensions implemented | Consumer wiring for remaining Packet 02 runtime routes, logout limiting |
+| Registration | Kill switch plus schema, invite lifecycle, transactional outbox worker, and admission controls | Invite/allowlist runtime gate |
+| Account linking | Explicit state+PKCE linking implemented locally; email ignored and prior sessions invalidated | Provider-dashboard and production-browser proof |
+| Rate limits | Upstash mandatory, OAuth endpoints covered, seven admission dimensions implemented | Consumer wiring for remaining runtime routes, logout limiting |
 | PKCE | S256 required, plain rejected | — (complete) |
 | Auth code use | Atomic conditional update | — (complete) |
 | OTP storage | HMAC-SHA256 with server secret | — (complete) |
@@ -156,7 +158,7 @@ public document describes the current implemented controls and known risks.
 | Dependencies | Blocking audit gate, 0 HIGH/CRITICAL | Ongoing maintenance |
 | Secrets | Full-history gitleaks in CI | Ongoing |
 | Observability | Console logs | Pino + request IDs + Sentry |
-| Testing | 19 files, 220 tests | Coverage thresholds + Playwright |
+| Testing | 42 files, 572 tests | Coverage thresholds + Playwright |
 | Session lifecycle | 30-day JWT | Max-age review, rotation |
 
 ## Account Linking
@@ -169,7 +171,7 @@ or account persistence.
 
 The Prisma adapter is wrapped so `createUser` and `linkAccount` fail closed if a
 future callback path reaches persistence unexpectedly. Explicit user-approved
-linking is reserved for a future both-factor ceremony.
+linking uses a dedicated both-factor ceremony outside NextAuth's normal sign-in callback.
 
 ## Subjects and Privacy
 
@@ -178,7 +180,7 @@ allows relying parties to correlate the same user.
 
 Planned policy:
 
-- existing LSA, Career Kit, and FixtureLog integrations retain public subjects;
+- existing client integrations retain public subjects;
 - new clients default to pairwise subjects;
 - credentials remain central and are never duplicated per app;
 - per-app access is modeled with membership records.
@@ -228,14 +230,15 @@ Production-required values (enforced by env schema; build fails if absent):
 - `TURNSTILE_EXPECTED_HOSTNAME`
 - `TURNSTILE_EXPECTED_ACTION`
 - `INTERNAL_WORKER_AUTH_SECRET`
-- `INVITE_DELIVERY_ENCRYPTION_KEY`
+- `QSTASH_URL`, `QSTASH_TOKEN`
+- `INVITE_DELIVERY_ENCRYPTION_KEYS` and `INVITE_DELIVERY_KEY_VERSION`
 - `INVITE_DELIVERY_KEY_VERSION`
 - `ADMIN_MFA_SECRET_ENCRYPTION_KEYS`
 - `ADMIN_MFA_SECRET_KEY_VERSION`
 - `ADMIN_ELEVATION_MAX_AGE_SECONDS`
 
 `OAUTH_JWT_PRIVATE_KEY`, `OAUTH_JWT_PUBLIC_KEY`, `OTP_HMAC_SECRET`,
-`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and the Packet 02
+`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and the
 admission/invite/Admin-MFA secrets above are required fields in the production
 env schema; the build fails without them.
 `SKIP_ENV_VALIDATION` has been removed from `vercel.json` and CI.

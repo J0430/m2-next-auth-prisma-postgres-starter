@@ -22,4 +22,6 @@ export function githubProvider() {
  *
  * Local:
  *   http://localhost:3000/api/auth/callback/github
+ * Dedicated account-link callback (configure separately):
+ *   {APP_URL}/api/account/link/github/callback
  */

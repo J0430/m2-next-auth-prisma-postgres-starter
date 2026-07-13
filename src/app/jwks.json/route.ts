@@ -8,8 +8,8 @@ export async function GET() {
         "Cache-Control": "public, max-age=3600, immutable",
       },
     });
-  } catch (error) {
-    console.error("JWKS unavailable", error);
+  } catch {
+    console.error("oauth.jwks_unavailable", { code: "JWKS_UNAVAILABLE" });
     return NextResponse.json({ error: "jwks_unavailable" }, { status: 500 });
   }
 }

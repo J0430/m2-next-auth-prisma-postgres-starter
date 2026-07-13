@@ -56,7 +56,9 @@ enum AdminMfaStatus {
   REVOKED
 }
 
-/* -------- NextAuth core -------- */
+/**
+ * -------- NextAuth core --------
+ */
 model User {
   id                    String        @id @default(cuid())
   name                  String?
@@ -69,22 +71,26 @@ model User {
   status                AccountStatus @default(INACTIVE)
   role                  Role          @default(USER)
   origin                AccountOrigin @default(FIRST_PARTY)
+  // PostgreSQL constraint triggers require ADMIN rows to have this marker and an ACTIVE AdminMfaFactor.
   mfaEnrolledAt         DateTime?
   lastStrongAuthAt      DateTime?
   sessionVersion        Int           @default(0)
 
-  accounts               Account[]
-  sessions               Session[]
-  profile                UserProfile?
-  oauthClients           OAuthClient[] @relation("UserOAuthClients")
-  oauthAuthorizationCodes OAuthAuthorizationCode[]
-  invitesIssued          Invite[] @relation("InviteIssuer")
-  invitesRedeemed        Invite[] @relation("InviteRedeemer")
-  outboxEmails           OutboxEmail[] @relation("OutboxEmailRecipient")
-  auditEventsAsActor     AuditEvent[] @relation("AuditActor")
-  auditEventsAsTarget    AuditEvent[] @relation("AuditTarget")
-  accountLinkIntents     AccountLinkIntent[]
-  adminMfaFactors        AdminMfaFactor[]
+  accounts                  Account[]
+  sessions                  Session[]
+  profile                   UserProfile?
+  oauthClients              OAuthClient[]            @relation("UserOAuthClients")
+  oauthAuthorizationCodes   OAuthAuthorizationCode[]
+  invitesIssued             Invite[]                 @relation("InviteIssuer")
+  invitesRedeemed           Invite[]                 @relation("InviteRedeemer")
+  outboxEmails              OutboxEmail[]            @relation("OutboxEmailRecipient")
+  auditEventsAsActor        AuditEvent[]             @relation("AuditActor")
+  auditEventsAsTarget       AuditEvent[]             @relation("AuditTarget")
+  accountLinkIntents        AccountLinkIntent[]
+  adminMfaFactors           AdminMfaFactor[]
+  adminCapabilityGrants     AdminCapabilityGrant[]
+  adminMfaLegacyExemption   AdminMfaLegacyExemption?
+  adminBootstrapCompletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -123,7 +129,7 @@ model Session {
 }
 
 model VerificationToken {
-  identifier String
+  identifier String   @unique
   token      String   @unique
   expires    DateTime
   attempts   Int      @default(0)
@@ -142,9 +148,12 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-/* -------- Packet 02 gated registration foundation -------- */
+/**
+ * -------- Packet 02 gated registration foundation --------
+ */
 model Invite {
   id               String       @id @default(cuid())
+  // PostgreSQL CHECK chk_invites_token_hash_length pins the raw SHA-256 digest to exactly 32 bytes.
   tokenHash        Bytes        @unique
   normalizedEmail  String?      @db.Citext
   status           InviteStatus @default(ISSUED)
@@ -156,8 +165,8 @@ model Invite {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  issuer              User @relation("InviteIssuer", fields: [issuerUserId], references: [id], onDelete: Restrict)
-  redeemedBy          User? @relation("InviteRedeemer", fields: [redeemedByUserId], references: [id], onDelete: Restrict)
+  issuer               User                  @relation("InviteIssuer", fields: [issuerUserId], references: [id], onDelete: Restrict)
+  redeemedBy           User?                 @relation("InviteRedeemer", fields: [redeemedByUserId], references: [id], onDelete: Restrict)
   registrationSessions RegistrationSession[]
 
   @@index([status, expiresAt])
@@ -200,16 +209,16 @@ model OutboxEmail {
 }
 
 model AuditEvent {
-  id            String   @id @default(cuid())
-  actorUserId   String?
-  action        String
-  targetType    String
-  targetId      String?
-  targetUserId  String?
-  requestId     String?
-  supportId     String?
-  metadata      Json?
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  action       String
+  targetType   String
+  targetId     String?
+  targetUserId String?
+  requestId    String?
+  supportId    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
 
   actor      User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   targetUser User? @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
@@ -226,6 +235,7 @@ model AccountLinkIntent {
   userId            String
   provider          String
   providerAccountId String?
+  sessionVersion    Int
   nonceHash         Bytes     @unique
   expiresAt         DateTime
   consumedAt        DateTime?
@@ -260,18 +270,19 @@ model RegistrationSession {
 }
 
 model AdminMfaFactor {
-  id               String         @id @default(cuid())
-  userId           String
-  kind             AdminMfaKind
-  status           AdminMfaStatus @default(PENDING)
+  id           String         @id @default(cuid())
+  userId       String
+  kind         AdminMfaKind
+  status       AdminMfaStatus @default(PENDING)
   /// Encrypted with ADMIN_MFA_SECRET_ENCRYPTION_KEYS; never invite-delivery keys or HKDF/KMS-derived material.
-  secretCipher     Bytes
+  secretCipher Bytes
   /// Write-version from ADMIN_MFA_SECRET_KEY_VERSION; decrypt by each row's stored version.
-  keyVersion       Int
-  createdAt        DateTime       @default(now())
-  activatedAt      DateTime?
-  revokedAt        DateTime?
-  lastUsedAt       DateTime?
+  keyVersion   Int
+  createdAt    DateTime       @default(now())
+  activatedAt  DateTime?
+  revokedAt    DateTime?
+  lastUsedAt   DateTime?
+  lastUsedStep BigInt?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -280,13 +291,36 @@ model AdminMfaFactor {
   @@map("admin_mfa_factors")
 }
 
-/* -------- Project extension -------- */
+model AdminCapabilityGrant {
+  id         String    @id @default(cuid())
+  userId     String
+  capability String
+  grantedAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, capability, revokedAt])
+  @@map("admin_capability_grants")
+}
+
+model AdminMfaLegacyExemption {
+  userId String @id
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_mfa_legacy_exemptions")
+}
+
+/**
+ * -------- Project extension --------
+ */
 model UserProfile {
-  id       String  @id @default(cuid())
-  userId   String  @unique
-  country  String? @db.VarChar(2)
-  city     String? @db.VarChar(120)
-  address  String? @db.Text
+  id      String  @id @default(cuid())
+  userId  String  @unique
+  country String? @db.VarChar(2)
+  city    String? @db.VarChar(120)
+  address String? @db.Text
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -308,7 +342,7 @@ model OAuthClient {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  createdBy User? @relation("UserOAuthClients", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy          User?                    @relation("UserOAuthClients", fields: [createdById], references: [id], onDelete: SetNull)
   authorizationCodes OAuthAuthorizationCode[]
 
   @@index([clientId])
@@ -316,8 +350,8 @@ model OAuthClient {
 }
 
 model OAuthAuthorizationCode {
-  id                  String   @id @default(cuid())
-  code                String   @unique
+  id                  String    @id @default(cuid())
+  code                String    @unique
   clientId            String
   userId              String
   redirectUri         String
@@ -327,7 +361,7 @@ model OAuthAuthorizationCode {
   nonce               String?
   expiresAt           DateTime
   usedAt              DateTime?
-  createdAt           DateTime @default(now())
+  createdAt           DateTime  @default(now())
 
   client OAuthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
   user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)

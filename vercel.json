@@ -1,4 +1,10 @@
 {
   "installCommand": "corepack enable && pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm build"
+  "buildCommand": "pnpm build",
+  "crons": [
+    {
+      "path": "/api/internal/outbox-email",
+      "schedule": "0 0 * * *"
+    }
+  ]
 }

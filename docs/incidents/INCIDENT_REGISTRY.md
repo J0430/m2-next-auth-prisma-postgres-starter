@@ -13,7 +13,14 @@ Track production, CI, test, build, and development-workflow incidents here.
 |----|------|----------|--------|---------|-------|
 | INCIDENT-P011 | 2026-06-21 | SEV-3 | OPEN | Vercel and GitHub release source drift: current Packet 02 branch lacks PR/CI evidence and Vercel project settings still show legacy build commands | Manu / Codex |
 | INCIDENT-P010 | 2026-06-21 | SEV-3 | OPEN | Packet 02 Production Vercel build fails because required env vars are absent and no env preflight blocks release actions | Manu / Codex |
-| INCIDENT-P007 | 2026-06-21 | SEV-4 | VERIFYING | Packet 02 PR CI lacks new build env fixtures and gitleaks flags fake Turnstile test fixtures | Manu / Codex |
+| INCIDENT-P007 | 2026-06-21 | SEV-4 | OPEN | CI jobs lack required runtime fixtures; secret scanning remains healthy | Manu / Codex |
+| INCIDENT-P041 | 2026-07-13 | SEV-3 | OPEN | Vercel Preview deployment still fails on `feat/secure-registration`; latest inspect logs pending | Manu / Codex |
+| INCIDENT-P040 | 2026-07-13 | SEV-4 | VERIFYING | CI gated-registration DB integration fails because replay losers do not append expected reuse audit rows | Manu / Codex |
+| INCIDENT-P039 | 2026-07-13 | SEV-4 | VERIFYING | CI coverage clean runner depends on local-only TASK-028 evidence docs | Manu / Codex |
+| INCIDENT-P019 | 2026-07-12 | SEV-3 | VERIFYING | Database invariant correction awaits successful disposable-PostgreSQL verification | Manu / Codex |
+| INCIDENT-P036 | 2026-07-13 | SEV-4 | VERIFYING | CI coverage clean runner lacked generated Prisma Client before tests | Manu / Codex |
+| INCIDENT-P037 | 2026-07-13 | SEV-4 | VERIFYING | CI end-to-end job starts without a generated Prisma client | Manu / Codex |
+| INCIDENT-P038 | 2026-07-13 | SEV-4 | VERIFYING | CI built-auth golden path rejects disposable credentials fixture because the local NextAuth origin is not explicit | Manu / Codex |
 | INCIDENT-P006 | 2026-06-21 | SEV-4 | VERIFYING | Vercel Preview deployment for `feat/gated-registration` lacked eight new Packet 02 env variables | Manu |
 | INCIDENT-P001 | 2026-06-17 | SEV-2 | INVESTIGATING | Production-facing auth exposure: open registration, ineffective rate-limit fallback, vulnerable dependencies, and OAuth/OTP hardening gaps | Manu / Codex |
 
