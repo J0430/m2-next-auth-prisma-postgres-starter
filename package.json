@@ -21,7 +21,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "migration:readiness": "tsx scripts/migration-readiness.ts",
     "migration:readiness:ci": "tsx scripts/migration-readiness.ts --mode ci --database-url \"$MIGRATION_DATABASE_URL\" --confirm-database \"$MIGRATION_DATABASE_NAME\" --shadow-database-url \"$MIGRATION_SHADOW_DATABASE_URL\"",
-    "test:db:gated-registration": "tsx scripts/gated-registration-db-integration.ts",
+    "test:db:gated-registration": "ADMIN_MFA_SECRET_ENCRYPTION_KEYS='{\"1\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}' ADMIN_MFA_SECRET_KEY_VERSION=1 tsx scripts/gated-registration-db-integration.ts",
     "migration:rollback:schema": "tsx scripts/migration-readiness.ts --mode schema-rollback --database-url \"$MIGRATION_DATABASE_URL\" --confirm-database \"$MIGRATION_DATABASE_NAME\" --shadow-database-url \"$MIGRATION_SHADOW_DATABASE_URL\" --run-id \"$MIGRATION_RUN_ID\" --app-rollback-evidence-json \"$APP_ROLLBACK_EVIDENCE_JSON\"",
     "migration:status:live": "tsx scripts/migration-readiness.ts --mode live --database-url \"$MIGRATION_DATABASE_URL\" --confirm-database \"$MIGRATION_DATABASE_NAME\"",
     "release:preflight": "tsx scripts/release-preflight.ts",

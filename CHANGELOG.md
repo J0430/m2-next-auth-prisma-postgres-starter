@@ -52,6 +52,12 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   accepting the trigger error shape Prisma exposes for admin-MFA capability
   checks, using run-scoped invite lookup token hashes, and pinning due outbox
   fixture times to the script clock.
+- Added the test-only admin-MFA keyring fixture to `pnpm test:db:gated-registration`
+  so the standalone local command matches the pre-push environment.
+- Hardened invite-reuse audit persistence by replacing the 50ms outer audit
+  deadline with a larger Prisma transaction wait/timeout budget, preventing CI
+  replay-loser audits from being reported as failed before the durable write can
+  complete.
 - Fixed raw timestamp comparisons in registration-session cleanup and outbox
   claiming so local non-UTC PostgreSQL sessions do not treat future rows as
   expired or unavailable.

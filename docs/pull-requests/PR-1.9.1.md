@@ -36,6 +36,9 @@ caught before pushing.
 | `scripts/built-auth-golden-path.ts` | Modified | Includes credential callback status and redirect location in failure output |
 | `scripts/built-auth-golden-path.ts` | Modified | Refuses non-local `auth_e2e` database targets before writing fixtures |
 | `scripts/gated-registration-db-integration.ts` | Modified | Makes local DB fixture timing and repeated runs deterministic |
+| `package.json` | Modified | Supplies the test-only admin-MFA keyring fixture for standalone DB integration runs |
+| `src/features/auth/server/invites/reuseEvidence.ts` | Modified | Gives durable invite-reuse audit writes a CI-safe Prisma transaction budget |
+| `tests/gated-registration-invites.test.ts` | Modified | Locks the hardened invite-reuse audit transaction budget |
 | `src/features/auth/server/outbox/db.ts`, `src/features/auth/server/outbox/maintenance.ts` | Modified | Normalize raw SQL `Date` comparisons with `AT TIME ZONE 'UTC'` |
 | `vercel.json` | Modified | Uses a Hobby-compatible once-daily outbox fallback cron |
 | `docs/incidents/INCIDENT-P038-ci-built-auth-nextauth-origin.md` | Created | Tracks the distinct E2E built-auth origin rejection |
@@ -57,6 +60,12 @@ caught before pushing.
   fallback now, once-per-minute polling only after a plan or worker change.
 - Built-auth E2E is fail-closed against remote databases so local `.env` values
   cannot accidentally write golden-path fixtures to Neon or production.
+- Invite-reuse evidence is security audit data, so the durable audit write must
+  be awaited with a realistic Prisma transaction budget instead of racing a
+  50ms admission-style deadline.
+- The standalone `pnpm test:db:gated-registration` command must carry the same
+  test-only admin-MFA keyring fixture as pre-push, otherwise it fails at the
+  final stored-key readiness check despite the database behavior passing.
 - Raw SQL that compares Prisma `Date` parameters with PostgreSQL
   `timestamp without time zone` columns must normalize with `AT TIME ZONE 'UTC'`
   to avoid local timezone drift in cleanup and claim predicates.
@@ -67,6 +76,7 @@ caught before pushing.
 - [x] `pnpm prisma:validate`
 - [x] `pnpm exec vitest run tests/security-ci-config.test.ts`
 - [x] `pnpm exec vitest run tests/gated-registration-security-verification.test.ts`
+- [x] `pnpm exec vitest run tests/gated-registration-invites.test.ts`
 - [x] `pnpm exec vitest run tests/gated-registration-outbox.test.ts`
 - [x] `DATABASE_URL=postgresql://manumurillo@localhost:5432/auth_ci pnpm test:db:gated-registration`
 - [x] `pnpm exec vitest run tests/migration-readiness.test.ts`

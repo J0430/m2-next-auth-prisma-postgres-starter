@@ -375,7 +375,7 @@ describe("redeemInviteInTx", () => {
   it("commits redacted reuse audit before invoking the production alert sink", async () => {
     const { prisma } = await import("@/lib/prisma");
     const createAuditEvent = vi.mocked(prisma.auditEvent.create).mockResolvedValue({ id: "audit-1" } as never);
-    vi.mocked(prisma.$transaction).mockImplementation(async (callback) => callback({
+    const transaction = vi.mocked(prisma.$transaction).mockImplementation(async (callback) => callback({
       auditEvent: { create: createAuditEvent },
     } as never));
     const alertReuse = vi.fn();
@@ -397,6 +397,7 @@ describe("redeemInviteInTx", () => {
         },
       },
     });
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 500, timeout: 750 });
     expect(alertReuse).toHaveBeenCalledWith({
       inviteId: "invite-1",
       status: "REDEEMED",

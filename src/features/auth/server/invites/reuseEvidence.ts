@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { monotonicNow, withinDeadline, type MonotonicClock } from "@/features/auth/server/admission";
 import { alertInviteReuse } from "./reuseAlert";
 
-const REUSE_EVIDENCE_BUDGET_MS = 75;
-const REUSE_AUDIT_BUDGET_MS = 50;
+const REUSE_EVIDENCE_BUDGET_MS = 1_000;
+const REUSE_AUDIT_MAX_WAIT_MS = 500;
+const REUSE_AUDIT_TIMEOUT_MS = 750;
 
 export async function recordInviteReuseEvidence(
   inviteId: string,
@@ -13,14 +14,14 @@ export async function recordInviteReuseEvidence(
   const startedAtMs = clock();
   let auditPersisted = false;
   try {
-    await withinDeadline(() => prisma.$transaction((tx) => tx.auditEvent.create({
-        data: {
-          action: "invite.reuse_detected",
-          targetType: "Invite",
-          targetId: inviteId,
-          metadata: { inviteStatus: "REDEEMED" },
-        },
-      }), { maxWait: 20, timeout: 50 }), startedAtMs + REUSE_AUDIT_BUDGET_MS, clock);
+    await prisma.$transaction((tx) => tx.auditEvent.create({
+      data: {
+        action: "invite.reuse_detected",
+        targetType: "Invite",
+        targetId: inviteId,
+        metadata: { inviteStatus: "REDEEMED" },
+      },
+    }), { maxWait: REUSE_AUDIT_MAX_WAIT_MS, timeout: REUSE_AUDIT_TIMEOUT_MS });
     auditPersisted = true;
   } catch {
     console.error("security.invite_reuse_audit_failed", {
