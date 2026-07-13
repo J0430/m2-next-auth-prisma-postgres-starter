@@ -31,8 +31,10 @@ the built-auth credential callback error still lacked redirect detail.
 | `tests/security-ci-config.test.ts` | Modified | Locked the CI clean-runner generation and E2E origin contracts |
 | `tests/gated-registration-security-verification.test.ts` | Modified | Uses committed packet/research evidence instead of ignored cursor-task files |
 | `scripts/built-auth-golden-path.ts` | Modified | Reports callback status and redirect location when credentials are rejected |
+| `scripts/built-auth-golden-path.ts` | Modified | Refuses remote/non-disposable database URLs before fixture writes |
 | `docs/incidents/` | Updated | Added P038 and updated CI incident status/evidence |
-| `README.md`, `CHANGELOG.md` | Updated | Documented CI repairs and Vercel Hobby cron blocker |
+| `vercel.json` | Modified | Relaxed outbox fallback cron to once daily for Hobby deployment compatibility |
+| `README.md`, `CHANGELOG.md` | Updated | Documented CI repairs and Vercel Hobby cron tradeoff |
 
 ## Decisions
 
@@ -46,9 +48,11 @@ the built-auth credential callback error still lacked redirect detail.
   checkout; cursor-task working copies are ignored local planning artifacts.
 - Migration-readiness must generate Prisma Client in its own job because it runs
   a TypeScript script that imports `@prisma/client`.
-- The Vercel failure is not source-code-fixable without changing product
-  cadence: the linked project is on Hobby and the repo declares a one-minute
-  cron.
+- Built-auth E2E must never trust the caller's default `.env`; it only writes
+  fixtures to local `auth_e2e`.
+- The Vercel failure is source-fixable only by changing product cadence on the
+  fallback worker: Hobby supports a once-daily cron, so the repo now uses that
+  cadence until the project moves to Pro/Enterprise or an external worker.
 
 ## Validation
 

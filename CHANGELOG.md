@@ -49,10 +49,14 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   `prisma/schema.prisma` so migration-readiness schema parity no longer
   proposes dropping the immutable snapshot table.
 
-### Known External Blockers
+### Deployment
 
-- Vercel project `manumu-auth` is on the Hobby plan, which does not support the
-  one-minute cron schedule currently declared in `vercel.json`.
+- Relaxed the Vercel transactional outbox fallback cron to once daily so Hobby
+  preview deployments are not blocked. Restore once-per-minute polling only on
+  a Pro/Enterprise project or with a separate worker.
+- Added the built-auth E2E path to the local pre-push hook so the production
+  build, local database migration, started app, and credentials golden path run
+  before pushing.
 
 ---
 

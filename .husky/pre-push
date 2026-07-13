@@ -10,4 +10,75 @@ pnpm typecheck || exit 1
 echo "🧪 Running tests with coverage..."
 pnpm test:coverage || exit 1
 
+echo "🏗️ Running production build for built-auth E2E..."
+PRIVATE_KEY="$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)"
+PUBLIC_KEY="$(printf '%s' "$PRIVATE_KEY" | openssl rsa -pubout 2>/dev/null)"
+test -n "$PRIVATE_KEY" || exit 1
+test -n "$PUBLIC_KEY" || exit 1
+
+export NEXT_TELEMETRY_DISABLED="1"
+export CI="1"
+export DATABASE_URL="${PRE_PUSH_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/auth_e2e}"
+export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-local-pre-push-nextauth-secret-32chars}"
+export AUTH_URL="http://localhost:3000"
+export NEXTAUTH_URL="http://localhost:3000"
+export APP_URL="http://localhost:3000"
+export UPSTASH_REDIS_REST_URL="http://127.0.0.1:8079"
+export UPSTASH_REDIS_REST_TOKEN="${UPSTASH_REDIS_REST_TOKEN:-dummy-upstash-token}"
+export OTP_HMAC_SECRET="${OTP_HMAC_SECRET:-local-pre-push-otp-hmac-secret-32}"
+export ACCOUNT_LINK_PKCE_SECRET="${ACCOUNT_LINK_PKCE_SECRET:-local-pre-push-account-link-pkce-secret}"
+export GITHUB_LINK_CLIENT_ID="${GITHUB_LINK_CLIENT_ID:-local-github-link-client}"
+export GITHUB_LINK_CLIENT_SECRET="${GITHUB_LINK_CLIENT_SECRET:-local-github-link-client-secret}"
+export SELF_SERVICE_REGISTRATION_ENABLED="false"
+export OAUTH_JWT_PRIVATE_KEY="$PRIVATE_KEY"
+export OAUTH_JWT_PUBLIC_KEY="$PUBLIC_KEY"
+export TURNSTILE_SECRET_KEY="${TURNSTILE_SECRET_KEY:-local-turnstile}"
+export TURNSTILE_EXPECTED_HOSTNAME="localhost"
+export TURNSTILE_EXPECTED_ACTION="gated-registration"
+export INTERNAL_WORKER_AUTH_SECRET="${INTERNAL_WORKER_AUTH_SECRET:-local-worker-secret-32chars-padded}"
+export QSTASH_URL="${QSTASH_URL:-https://qstash.upstash.io}"
+export QSTASH_TOKEN="${QSTASH_TOKEN:-qstash-local-fixture}"
+export RESEND_API_KEY="${RESEND_API_KEY:-re_local_fixture}"
+export INVITE_DELIVERY_ENCRYPTION_KEYS='{"1":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'
+export INVITE_DELIVERY_KEY_VERSION="1"
+export ADMIN_MFA_SECRET_ENCRYPTION_KEYS='{"1":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}'
+export ADMIN_MFA_SECRET_KEY_VERSION="1"
+
+pnpm build || exit 1
+
+echo "🗄️ Preparing local E2E database..."
+command -v psql >/dev/null 2>&1 || {
+  echo "🔴 psql is required for pre-push built-auth E2E."
+  exit 1
+}
+psql postgresql://postgres:postgres@localhost:5432/postgres \
+  -tc "SELECT 1 FROM pg_database WHERE datname = 'auth_e2e'" | grep -q 1 \
+  || psql postgresql://postgres:postgres@localhost:5432/postgres -c 'CREATE DATABASE auth_e2e' \
+  || exit 1
+pnpm prisma:deploy || exit 1
+
+echo "🚀 Starting built application..."
+APP_LOG=".git/pre-push-built-app.log"
+pnpm start >"$APP_LOG" 2>&1 &
+APP_PID="$!"
+cleanup() {
+  kill "$APP_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+for attempt in $(seq 1 30); do
+  curl --fail --silent http://localhost:3000/api/healthz >/dev/null && break
+  if [ "$attempt" = "30" ]; then
+    cat "$APP_LOG"
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "🎭 Running built-auth E2E..."
+pnpm e2e:built-auth || {
+  cat "$APP_LOG"
+  exit 1
+}
+
 echo "✅ All pre-push checks passed."

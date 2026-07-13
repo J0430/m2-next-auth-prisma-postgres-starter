@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/internal/outbox-email",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

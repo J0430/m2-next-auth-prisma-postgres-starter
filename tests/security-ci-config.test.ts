@@ -153,6 +153,8 @@ describe('parallel CI contract', () => {
     expect(builtAuthGoldenPath).toContain('/api/auth/csrf');
     expect(builtAuthGoldenPath).toContain('/api/auth/callback/credentials');
     expect(builtAuthGoldenPath).toContain('/api/auth/session');
+    expect(builtAuthGoldenPath).toContain('assertDisposableDatabaseUrl');
+    expect(builtAuthGoldenPath).toContain('auth_e2e');
     expect(builtAuthGoldenPath).toContain('hasPasswordCredential: true');
     expect(builtAuthGoldenPath).toContain('emailVerified: new Date()');
     expect(builtAuthGoldenPath).toMatch(/hash\([^,]+,\s*10\)/);

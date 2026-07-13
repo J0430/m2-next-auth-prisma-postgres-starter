@@ -18,9 +18,8 @@ It also removes ignored cursor-task files from TASK-028 security evidence,
 generates Prisma Client in migration-readiness before the TypeScript readiness
 script runs, and makes built-auth credential rejection logs actionable.
 
-The Vercel check remains externally blocked: the linked `manumu-auth` project is
-on the Hobby plan, while `vercel.json` declares a one-minute cron for the
-transactional outbox worker.
+The Vercel check is unblocked for the linked Hobby project by relaxing the
+transactional outbox fallback cron to once daily.
 
 ## Files Changed
 
@@ -31,6 +30,8 @@ transactional outbox worker.
 | `tests/security-ci-config.test.ts` | Modified | Added assertions for coverage generation and E2E local origin |
 | `tests/gated-registration-security-verification.test.ts` | Modified | Reads only committed packet/research docs in clean CI checkouts |
 | `scripts/built-auth-golden-path.ts` | Modified | Includes credential callback status and redirect location in failure output |
+| `scripts/built-auth-golden-path.ts` | Modified | Refuses non-local `auth_e2e` database targets before writing fixtures |
+| `vercel.json` | Modified | Uses a Hobby-compatible once-daily outbox fallback cron |
 | `docs/incidents/INCIDENT-P038-ci-built-auth-nextauth-origin.md` | Created | Tracks the distinct E2E built-auth origin rejection |
 | `README.md`, `CHANGELOG.md`, `docs/journal/ENTRY-25.md` | Updated | Living docs and release handoff synchronized |
 
@@ -46,8 +47,10 @@ transactional outbox worker.
   runner.
 - TASK-028 evidence is sourced from committed packet/research docs, not ignored
   cursor-task planning files.
-- Vercel cron cadence is a deployment-plan decision, not a CI implementation
-  bug.
+- Vercel cron cadence is now a deployment tradeoff: Hobby-compatible daily
+  fallback now, once-per-minute polling only after a plan or worker change.
+- Built-auth E2E is fail-closed against remote databases so local `.env` values
+  cannot accidentally write golden-path fixtures to Neon or production.
 
 ## Test Plan
 
@@ -66,6 +69,6 @@ transactional outbox worker.
 
 ## Deployment Notes
 
-Before Vercel can pass on the linked Hobby project, either upgrade the project
-to a plan that supports once-per-minute cron jobs or change the outbox fallback
-cron to a once-daily schedule and accept the product tradeoff.
+The linked Hobby project should now accept the preview deployment. Transactional
+outbox fallback latency is daily until the project upgrades or moves the worker
+outside Vercel Cron.

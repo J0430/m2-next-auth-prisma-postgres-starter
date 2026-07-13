@@ -8,10 +8,29 @@ import { z } from 'zod';
 const APP_ORIGIN = 'http://localhost:3000';
 const RATE_LIMIT_PORT = 8079;
 const PASSWORD = 'CI-only-password-42!';
+const DISPOSABLE_DATABASE_NAME = 'auth_e2e';
 const CsrfSchema = z.object({ csrfToken: z.string().min(1) });
 const SessionSchema = z.object({
   user: z.object({ id: z.string().min(1), email: z.string().email() }),
 });
+
+function assertDisposableDatabaseUrl(rawDatabaseUrl: string | undefined): void {
+  if (!rawDatabaseUrl) {
+    throw new Error('DATABASE_URL must point to local disposable auth_e2e before running built-auth E2E');
+  }
+  const databaseUrl = new URL(rawDatabaseUrl);
+  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//u, ''));
+  const isPostgres = databaseUrl.protocol === 'postgresql:' || databaseUrl.protocol === 'postgres:';
+  const isLoopback = databaseUrl.hostname === 'localhost'
+    || databaseUrl.hostname === '127.0.0.1'
+    || databaseUrl.hostname === '[::1]';
+  if (!isPostgres || !isLoopback || databaseName !== DISPOSABLE_DATABASE_NAME) {
+    throw new Error(
+      'Refusing to run built-auth E2E outside local disposable auth_e2e. '
+      + 'Use DATABASE_URL=postgresql://postgres:postgres@localhost:5432/auth_e2e with a local built app.',
+    );
+  }
+}
 
 function cookiesFrom(response: Response): string[] {
   const header = response.headers.get('set-cookie') ?? '';
@@ -40,6 +59,7 @@ function startRateLimitStub(): Promise<ReturnType<typeof createServer>> {
   });
 }
 
+assertDisposableDatabaseUrl(process.env.DATABASE_URL);
 const prisma = new PrismaClient();
 const email = `ci-auth-golden-${Date.now()}@example.invalid`;
 const rateLimitStub = await startRateLimitStub();

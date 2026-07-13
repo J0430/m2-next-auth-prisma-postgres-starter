@@ -185,13 +185,17 @@ Current limitations:
 
 - `pnpm lint` verifies without mutation; use `pnpm lint:fix` for explicit fixes.
 - Current suite: 42 Vitest files / 571 tests.
+- The pre-push hook runs lint, typecheck, coverage, production build, and the
+  built-auth E2E path against a local `auth_e2e` PostgreSQL database.
+- `pnpm e2e:built-auth` is guarded to refuse non-local databases; run it only
+  with `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/auth_e2e`
+  and a local built app already listening on port 3000.
 - CI clean-runner jobs generate Prisma Client before coverage, migration
   readiness, and E2E runtime checks, then compare committed migrations against
   `prisma/schema.prisma`.
 - Coverage thresholds and Playwright E2E tests are not configured.
-- Vercel deployment on the current Hobby project cannot run the one-minute
-  transactional outbox cron; use a Pro/Enterprise project or relax the cron
-  cadence before treating the Vercel check as releasable.
+- Vercel Hobby deployment uses a once-daily transactional outbox cron fallback;
+  upgrade to Pro/Enterprise before restoring once-per-minute polling.
 - The `smoke` script targets `/api/healthz`, which will be implemented during
   the account-linking parity work.
 
