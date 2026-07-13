@@ -22,9 +22,9 @@ SELECT
 FROM "public"."outbox_emails"
 WHERE "id" = $1
   AND "status" IN ('PENDING', 'CLAIMED')
-  AND "availableAt" <= $2
-  AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= $2)
-  AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= $3)
+  AND "availableAt" <= ($2 AT TIME ZONE 'UTC')
+  AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= ($2 AT TIME ZONE 'UTC'))
+  AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= ($3 AT TIME ZONE 'UTC'))
 ORDER BY "createdAt" ASC
 FOR UPDATE SKIP LOCKED
 LIMIT 1

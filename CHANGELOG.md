@@ -32,7 +32,7 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   smoke/E2E, and security jobs with branch-aware cancellation.
 - Made lint verification non-mutating and added blocking coverage and client
   bundle budgets.
-- Expanded automated coverage to 571 tests across 42 files.
+- Expanded automated coverage to 568 tests across 42 files.
 
 ### Fixed
 
@@ -48,6 +48,13 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
 - Reconciled the additive admin MFA legacy-exemption table with
   `prisma/schema.prisma` so migration-readiness schema parity no longer
   proposes dropping the immutable snapshot table.
+- Made the gated-registration DB integration repeatable on local PostgreSQL by
+  accepting the trigger error shape Prisma exposes for admin-MFA capability
+  checks, using run-scoped invite lookup token hashes, and pinning due outbox
+  fixture times to the script clock.
+- Fixed raw timestamp comparisons in registration-session cleanup and outbox
+  claiming so local non-UTC PostgreSQL sessions do not treat future rows as
+  expired or unavailable.
 
 ### Deployment
 
@@ -56,6 +63,9 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   a Pro/Enterprise project or with a separate worker.
 - Added the built-auth E2E path to the local pre-push hook so the production
   build, local database migration, started app, and credentials golden path run
+  before pushing.
+- Added the real PostgreSQL gated-registration integration suite to pre-push via
+  a local `auth_ci` database, catching the CI migration-readiness behavior gate
   before pushing.
 
 ---

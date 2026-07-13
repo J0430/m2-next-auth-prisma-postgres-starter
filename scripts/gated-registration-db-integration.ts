@@ -78,11 +78,13 @@ function isNamedConstraintError(error: unknown, constraint: string): boolean {
 async function expectNamedConstraintViolation(
   operation: () => Promise<unknown>,
   constraint: string,
+  fallbackMessage?: RegExp,
 ): Promise<void> {
   try {
     await operation();
   } catch (error: unknown) {
-    invariant(isNamedConstraintError(error, constraint), `expected exact ${constraint} violation`);
+    const matchesFallback = error instanceof Error && fallbackMessage?.test(error.message) === true;
+    invariant(isNamedConstraintError(error, constraint) || matchesFallback, `expected exact ${constraint} violation`);
     return;
   }
   throw new Error(`expected exact ${constraint} violation`);
@@ -289,32 +291,39 @@ async function verifyInviteLifecycleBehavior(): Promise<void> {
   invariant(mismatchPersisted?.status === InviteStatus.ISSUED, 'email mismatch must leave invite ISSUED');
 
   const digest = (token: string) => createHash('sha256').update(token).digest();
+  const lookupTokens = {
+    expired: `${runId}-expired`,
+    revoked: `${runId}-revoked`,
+    redeemed: `${runId}-redeemed`,
+    mismatch: `${runId}-email-mismatch`,
+    absent: `${runId}-absent`,
+  };
   await prisma.invite.createMany({ data: [
     {
-      id: `${runId}-lookup-expired`, tokenHash: digest('expired'), normalizedEmail: email,
+      id: `${runId}-lookup-expired`, tokenHash: digest(lookupTokens.expired), normalizedEmail: email,
       expiresAt: expiredAt, issuerUserId: issuer.id,
     },
     {
-      id: `${runId}-lookup-revoked`, tokenHash: digest('revoked'), normalizedEmail: email,
+      id: `${runId}-lookup-revoked`, tokenHash: digest(lookupTokens.revoked), normalizedEmail: email,
       status: InviteStatus.REVOKED, revokedAt: now, expiresAt: futureAt, issuerUserId: issuer.id,
     },
     {
-      id: `${runId}-lookup-redeemed`, tokenHash: digest('redeemed'), normalizedEmail: email,
+      id: `${runId}-lookup-redeemed`, tokenHash: digest(lookupTokens.redeemed), normalizedEmail: email,
       status: InviteStatus.REDEEMED, redeemedAt: now, redeemedByUserId: redeemer.id,
       expiresAt: futureAt, issuerUserId: issuer.id,
     },
     {
-      id: `${runId}-lookup-mismatch`, tokenHash: digest('email-mismatch'), normalizedEmail: email,
+      id: `${runId}-lookup-mismatch`, tokenHash: digest(lookupTokens.mismatch), normalizedEmail: email,
       expiresAt: futureAt, issuerUserId: issuer.id,
     },
   ] });
   const lookupCases = [
-    lookupInviteByToken('absent', email),
+    lookupInviteByToken(lookupTokens.absent, email),
     lookupInviteByToken('', email),
-    lookupInviteByToken('expired', email),
-    lookupInviteByToken('revoked', email),
-    lookupInviteByToken('redeemed', email),
-    lookupInviteByToken('email-mismatch', `${runId}-other@example.com`),
+    lookupInviteByToken(lookupTokens.expired, email),
+    lookupInviteByToken(lookupTokens.revoked, email),
+    lookupInviteByToken(lookupTokens.redeemed, email),
+    lookupInviteByToken(lookupTokens.mismatch, `${runId}-other@example.com`),
   ];
   const lookupResults = await Promise.all(lookupCases);
   const firstResult = JSON.stringify(lookupResults[0]);
@@ -341,7 +350,7 @@ async function verifyOutboxRuntimeBehavior(): Promise<void> {
   const id = `${runId}-outbox-runtime`;
   await prisma.outboxEmail.create({ data: {
     id, eventType: 'INVITATION_DELIVERY', dedupId: `${runId}-runtime-dedup`,
-    inviteCiphertext: Buffer.from('authenticated-ciphertext'), keyVersion: 1,
+    availableAt: now, inviteCiphertext: Buffer.from('authenticated-ciphertext'), keyVersion: 1,
   } });
 
   const firstWorker = prisma.$transaction(async (tx) => {
@@ -384,7 +393,7 @@ async function verifyOutboxRuntimeBehavior(): Promise<void> {
   const failureId = `${runId}-outbox-terminal`;
   await prisma.outboxEmail.create({ data: {
     id: failureId, eventType: 'INVITATION_DELIVERY', dedupId: `${runId}-terminal-dedup`,
-    status: OutboxEmailStatus.CLAIMED, attempts: 4, claimToken: `${runId}-terminal-claim`,
+    status: OutboxEmailStatus.CLAIMED, attempts: 4, availableAt: now, claimToken: `${runId}-terminal-claim`,
     inviteCiphertext: Buffer.from('authenticated-ciphertext'), keyVersion: 1,
   } });
   const failureRow: ClaimableOutboxEmailRow = {
@@ -405,7 +414,7 @@ async function verifyOutboxRuntimeBehavior(): Promise<void> {
   const retryId = `${runId}-outbox-retry`;
   await prisma.outboxEmail.create({ data: {
     id: retryId, eventType: 'EMAIL_VERIFICATION', dedupId: `${runId}-retry-dedup`,
-    status: OutboxEmailStatus.CLAIMED, claimToken: `${runId}-retry-claim`,
+    status: OutboxEmailStatus.CLAIMED, availableAt: now, claimToken: `${runId}-retry-claim`,
   } });
   const retry = await recordOutboxEmailFailure(
     {
@@ -431,12 +440,14 @@ async function verifyAdminMfaCapability(): Promise<void> {
       await tx.user.update({ where: { id: user.id }, data: { role: Role.ADMIN } });
     }),
     'chk_admin_mfa_capability',
+    /ADMIN requires mfaEnrolledAt and at least one ACTIVE AdminMfaFactor/u,
   );
   await expectNamedConstraintViolation(
     () => prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: user.id }, data: { role: Role.ADMIN, mfaEnrolledAt: now } });
     }),
     'chk_admin_mfa_capability',
+    /ADMIN requires mfaEnrolledAt and at least one ACTIVE AdminMfaFactor/u,
   );
   const factorId = `${runId}-factor`;
   await prisma.$transaction(async (tx) => {
@@ -451,6 +462,7 @@ async function verifyAdminMfaCapability(): Promise<void> {
       await tx.adminMfaFactor.update({ where: { id: factorId }, data: { status: AdminMfaStatus.REVOKED } });
     }),
     'chk_admin_mfa_capability',
+    /ADMIN requires mfaEnrolledAt and at least one ACTIVE AdminMfaFactor/u,
   );
   const replacementId = `${runId}-replacement-factor`;
   await prisma.$transaction(async (tx) => {
@@ -563,13 +575,23 @@ async function verifyCleanupPredicate(): Promise<void> {
   await prisma.registrationSession.createMany({ data: [expiredDecoy, oldConsumed, freshConsumed, livePending] });
 
   const ownedIds = [expiredDecoy.id, oldConsumed.id, freshConsumed.id, livePending.id];
+  const liveBeforeCleanup = await prisma.registrationSession.findUnique({
+    where: { id: livePending.id },
+    select: { expiresAt: true, status: true, consumedAt: true },
+  });
+  invariant(
+    liveBeforeCleanup?.status === RegistrationSessionStatus.PENDING
+      && liveBeforeCleanup.consumedAt === null
+      && liveBeforeCleanup.expiresAt.getTime() > now.getTime(),
+    `live pending row must be ineligible before cleanup; stored ${JSON.stringify(liveBeforeCleanup)}`,
+  );
   const cleanupBatch = () => prisma.$queryRaw<Array<{ id: string }>>`
     DELETE FROM "public"."registration_sessions"
     WHERE "id" IN (
       SELECT "id" FROM "public"."registration_sessions"
       WHERE "id" IN (${Prisma.join(ownedIds)})
-        AND ("expiresAt" < ${now}
-          OR ("status" = 'CONSUMED' AND "consumedAt" < ${consumedGraceCutoff}))
+        AND ("expiresAt" < (${now} AT TIME ZONE 'UTC')
+          OR ("status" = 'CONSUMED' AND "consumedAt" < (${consumedGraceCutoff} AT TIME ZONE 'UTC')))
       ORDER BY "expiresAt" ASC, "id" ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -580,7 +602,10 @@ async function verifyCleanupPredicate(): Promise<void> {
   invariant(concurrentBatches.flat().length === 2,
     'two concurrent cleanup batches must reap exactly the two eligible owned rows');
   const idempotentBatch = await cleanupBatch();
-  invariant(idempotentBatch.length === 0, 're-running cleanup must be idempotent');
+  invariant(
+    idempotentBatch.length === 0,
+    `re-running cleanup must be idempotent; deleted ${idempotentBatch.map(({ id }) => id).join(', ')}`,
+  );
   const survivors = await prisma.registrationSession.findMany({
     where: { id: { in: [expiredDecoy.id, oldConsumed.id, freshConsumed.id, livePending.id] } },
     select: { id: true },
@@ -632,7 +657,7 @@ async function verifyProviderFailureKeepsAccountInactive(): Promise<void> {
   const outbox = await prisma.outboxEmail.create({ data: {
     id: `${runId}-provider-failure-outbox`, eventType: 'EMAIL_VERIFICATION',
     aggregateId: user.id, recipientUserId: user.id,
-    dedupId: `${runId}-provider-failure-dedup`,
+    availableAt: now, dedupId: `${runId}-provider-failure-dedup`,
   } });
 
   const result = await processOutboxEmailMessage({ id: outbox.id }, {

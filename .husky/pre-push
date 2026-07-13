@@ -20,6 +20,7 @@ export NEXT_TELEMETRY_DISABLED="1"
 export CI="1"
 export DATABASE_URL="${PRE_PUSH_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/auth_e2e}"
 export PRE_PUSH_ADMIN_DATABASE_URL="${PRE_PUSH_ADMIN_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/postgres}"
+export PRE_PUSH_DB_TEST_DATABASE_URL="${PRE_PUSH_DB_TEST_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/auth_ci}"
 export NEXTAUTH_SECRET="${NEXTAUTH_SECRET:-local-pre-push-nextauth-secret-32chars}"
 export AUTH_URL="http://localhost:3000"
 export NEXTAUTH_URL="http://localhost:3000"
@@ -47,22 +48,33 @@ export ADMIN_MFA_SECRET_KEY_VERSION="1"
 
 pnpm build || exit 1
 
-echo "🗄️ Preparing local E2E database..."
+echo "🗄️ Preparing local test databases..."
 command -v psql >/dev/null 2>&1 || {
-  echo "🔴 psql is required for pre-push built-auth E2E."
+  echo "🔴 psql is required for pre-push database checks."
   exit 1
 }
 if ! psql "$PRE_PUSH_ADMIN_DATABASE_URL" -c 'SELECT 1' >/dev/null 2>&1; then
-  echo "🔴 Local Postgres is not reachable for pre-push built-auth E2E."
+  echo "🔴 Local Postgres is not reachable for pre-push database checks."
   echo "   Start it with: brew services start postgresql@16"
   echo "   Default expected admin URL: $PRE_PUSH_ADMIN_DATABASE_URL"
-  echo "   Override with PRE_PUSH_ADMIN_DATABASE_URL and PRE_PUSH_DATABASE_URL if your local role is not postgres/postgres."
+  echo "   Override with PRE_PUSH_ADMIN_DATABASE_URL, PRE_PUSH_DB_TEST_DATABASE_URL, and PRE_PUSH_DATABASE_URL if your local role is not postgres/postgres."
   exit 1
 fi
+psql "$PRE_PUSH_ADMIN_DATABASE_URL" \
+  -tc "SELECT 1 FROM pg_database WHERE datname = 'auth_ci'" | grep -q 1 \
+  || psql "$PRE_PUSH_ADMIN_DATABASE_URL" -c 'CREATE DATABASE auth_ci' \
+  || exit 1
 psql "$PRE_PUSH_ADMIN_DATABASE_URL" \
   -tc "SELECT 1 FROM pg_database WHERE datname = 'auth_e2e'" | grep -q 1 \
   || psql "$PRE_PUSH_ADMIN_DATABASE_URL" -c 'CREATE DATABASE auth_e2e' \
   || exit 1
+
+echo "🧬 Running gated-registration database integration..."
+DATABASE_URL="$PRE_PUSH_DB_TEST_DATABASE_URL" pnpm prisma:deploy || exit 1
+DATABASE_URL="$PRE_PUSH_DB_TEST_DATABASE_URL" pnpm test:db:gated-registration || exit 1
+
+echo "🗄️ Migrating built-auth E2E database..."
+export DATABASE_URL="${PRE_PUSH_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/auth_e2e}"
 pnpm prisma:deploy || exit 1
 
 echo "🚀 Starting built application..."

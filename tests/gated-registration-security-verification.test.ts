@@ -11,9 +11,6 @@ const ROOT = process.cwd();
 
 const DECISION_ONE_FILES = [
   "docs/build-packets/PACKET-02-gated-registration.md",
-  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/PACKET-02-gated-registration.md",
-  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/CP-012-packet02-redline-apply-and-build.md",
-  "docs/research/PACKET-02-STAGE-0-CONTEXT/source/TASK-027-invitation-registration-ux.md",
 ] as const;
 
 function read(relativePath: string): string {

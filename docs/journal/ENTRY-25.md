@@ -22,6 +22,12 @@ was reading ignored `docs/cursor-tasks` files, migration-readiness invoked a
 TypeScript PrismaClient script before generating Prisma Client in that job, and
 the built-auth credential callback error still lacked redirect detail.
 
+A later migration-readiness run exposed that the real PostgreSQL
+gated-registration integration was not part of pre-push. Reproducing it locally
+also found local-only brittleness around trigger error metadata, raw timestamp
+comparisons in non-UTC PostgreSQL sessions, non-run-scoped invite lookup hashes,
+and outbox rows whose default due time raced the fixed test clock.
+
 ## Files Touched
 
 | File / Folder | Action | Notes |
@@ -30,8 +36,12 @@ the built-auth credential callback error still lacked redirect detail.
 | `prisma/schema.prisma` | Modified | Added `AdminMfaLegacyExemption` model mapped to the immutable snapshot table |
 | `tests/security-ci-config.test.ts` | Modified | Locked the CI clean-runner generation and E2E origin contracts |
 | `tests/gated-registration-security-verification.test.ts` | Modified | Uses committed packet/research evidence instead of ignored cursor-task files |
+| `.husky/pre-push` | Modified | Runs gated-registration DB integration on local `auth_ci` before built-auth E2E |
 | `scripts/built-auth-golden-path.ts` | Modified | Reports callback status and redirect location when credentials are rejected |
 | `scripts/built-auth-golden-path.ts` | Modified | Refuses remote/non-disposable database URLs before fixture writes |
+| `scripts/gated-registration-db-integration.ts` | Modified | Stabilized local PostgreSQL assertions, lookup hashes, and due outbox fixtures |
+| `src/features/auth/server/outbox/db.ts` | Modified | Normalized outbox due/lease `Date` comparisons with `AT TIME ZONE 'UTC'` |
+| `src/features/auth/server/outbox/maintenance.ts` | Modified | Normalized registration-session cleanup `Date` comparisons with `AT TIME ZONE 'UTC'` |
 | `docs/incidents/` | Updated | Added P038 and updated CI incident status/evidence |
 | `vercel.json` | Modified | Relaxed outbox fallback cron to once daily for Hobby deployment compatibility |
 | `README.md`, `CHANGELOG.md` | Updated | Documented CI repairs and Vercel Hobby cron tradeoff |
@@ -53,6 +63,11 @@ the built-auth credential callback error still lacked redirect detail.
 - The Vercel failure is source-fixable only by changing product cadence on the
   fallback worker: Hobby supports a once-daily cron, so the repo now uses that
   cadence until the project moves to Pro/Enterprise or an external worker.
+- The real PostgreSQL gated-registration integration belongs in pre-push because
+  it catches migration-readiness behavior regressions that unit coverage cannot.
+- Raw SQL comparing Prisma `Date` parameters to PostgreSQL
+  `timestamp without time zone` columns must normalize parameters with
+  `AT TIME ZONE 'UTC'` to avoid local timezone drift.
 
 ## Validation
 
@@ -60,14 +75,16 @@ the built-auth credential callback error still lacked redirect detail.
 pnpm prisma:generate                 # passed
 pnpm prisma:validate                 # passed
 pnpm exec vitest run tests/security-ci-config.test.ts  # 12/12 passed
-pnpm exec vitest run tests/gated-registration-security-verification.test.ts  # 20/20 passed
+pnpm exec vitest run tests/gated-registration-security-verification.test.ts  # 17/17 passed
 pnpm exec vitest run tests/migration-readiness.test.ts  # 35/35 passed
 pnpm exec vitest run tests/gated-registration-link-routes.test.ts  # 19/19 passed
-pnpm test:coverage                   # 571/571 passed across 42 files
+pnpm exec vitest run tests/gated-registration-outbox.test.ts  # 30/30 passed
+DATABASE_URL=postgresql://manumurillo@localhost:5432/auth_ci pnpm test:db:gated-registration  # passed
+pnpm test:coverage                   # 568/568 passed across 42 files
 pnpm typecheck                       # passed
 pnpm lint                            # passed
+PRE_PUSH_ADMIN_DATABASE_URL="postgresql://manumurillo@localhost:5432/postgres" \
+PRE_PUSH_DB_TEST_DATABASE_URL="postgresql://manumurillo@localhost:5432/auth_ci" \
+PRE_PUSH_DATABASE_URL="postgresql://manumurillo@localhost:5432/auth_e2e" \
+.husky/pre-push                      # passed
 ```
-
-Full disposable-PostgreSQL migration-readiness could not be run locally because
-Docker is unavailable and the installed Homebrew `libpq` tools do not include
-the `postgres` server binary required by `initdb`.

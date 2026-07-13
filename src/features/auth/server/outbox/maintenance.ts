@@ -27,8 +27,8 @@ const DEFAULT_CLEANUP_DEPS: RegistrationSessionCleanupDeps = {
       DELETE FROM "public"."registration_sessions"
       WHERE "id" IN (
         SELECT "id" FROM "public"."registration_sessions"
-        WHERE "expiresAt" < ${now}
-           OR ("status" = 'CONSUMED' AND "consumedAt" < ${consumedBefore})
+        WHERE "expiresAt" < (${now} AT TIME ZONE 'UTC')
+           OR ("status" = 'CONSUMED' AND "consumedAt" < (${consumedBefore} AT TIME ZONE 'UTC'))
         ORDER BY "expiresAt" ASC, "id" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}

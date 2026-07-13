@@ -20,6 +20,9 @@ script runs, and makes built-auth credential rejection logs actionable.
 
 The Vercel check is unblocked for the linked Hobby project by relaxing the
 transactional outbox fallback cron to once daily.
+The local pre-push hook now also runs the real PostgreSQL gated-registration
+integration gate that was failing in CI, so migration-readiness failures are
+caught before pushing.
 
 ## Files Changed
 
@@ -29,8 +32,11 @@ transactional outbox fallback cron to once daily.
 | `prisma/schema.prisma` | Modified | Added `AdminMfaLegacyExemption` mapped to `admin_mfa_legacy_exemptions` |
 | `tests/security-ci-config.test.ts` | Modified | Added assertions for coverage generation and E2E local origin |
 | `tests/gated-registration-security-verification.test.ts` | Modified | Reads only committed packet/research docs in clean CI checkouts |
+| `.husky/pre-push` | Modified | Runs gated-registration DB integration on local `auth_ci` before built-auth E2E |
 | `scripts/built-auth-golden-path.ts` | Modified | Includes credential callback status and redirect location in failure output |
 | `scripts/built-auth-golden-path.ts` | Modified | Refuses non-local `auth_e2e` database targets before writing fixtures |
+| `scripts/gated-registration-db-integration.ts` | Modified | Makes local DB fixture timing and repeated runs deterministic |
+| `src/features/auth/server/outbox/db.ts`, `src/features/auth/server/outbox/maintenance.ts` | Modified | Normalize raw SQL `Date` comparisons with `AT TIME ZONE 'UTC'` |
 | `vercel.json` | Modified | Uses a Hobby-compatible once-daily outbox fallback cron |
 | `docs/incidents/INCIDENT-P038-ci-built-auth-nextauth-origin.md` | Created | Tracks the distinct E2E built-auth origin rejection |
 | `README.md`, `CHANGELOG.md`, `docs/journal/ENTRY-25.md` | Updated | Living docs and release handoff synchronized |
@@ -51,6 +57,9 @@ transactional outbox fallback cron to once daily.
   fallback now, once-per-minute polling only after a plan or worker change.
 - Built-auth E2E is fail-closed against remote databases so local `.env` values
   cannot accidentally write golden-path fixtures to Neon or production.
+- Raw SQL that compares Prisma `Date` parameters with PostgreSQL
+  `timestamp without time zone` columns must normalize with `AT TIME ZONE 'UTC'`
+  to avoid local timezone drift in cleanup and claim predicates.
 
 ## Test Plan
 
@@ -58,11 +67,14 @@ transactional outbox fallback cron to once daily.
 - [x] `pnpm prisma:validate`
 - [x] `pnpm exec vitest run tests/security-ci-config.test.ts`
 - [x] `pnpm exec vitest run tests/gated-registration-security-verification.test.ts`
+- [x] `pnpm exec vitest run tests/gated-registration-outbox.test.ts`
+- [x] `DATABASE_URL=postgresql://manumurillo@localhost:5432/auth_ci pnpm test:db:gated-registration`
 - [x] `pnpm exec vitest run tests/migration-readiness.test.ts`
 - [x] `pnpm exec vitest run tests/gated-registration-link-routes.test.ts`
-- [x] `pnpm test:coverage` - 571 tests across 42 files
+- [x] `pnpm test:coverage` - 568 tests across 42 files
 - [x] `pnpm typecheck`
 - [x] `pnpm lint`
+- [x] `.husky/pre-push` with local `auth_ci` and `auth_e2e`
 - [ ] GitHub `migration-readiness` clean-runner check
 - [ ] GitHub `test-coverage` clean-runner check
 - [ ] GitHub `e2e` clean-runner check

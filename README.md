@@ -184,9 +184,10 @@ pnpm prisma:deploy
 Current limitations:
 
 - `pnpm lint` verifies without mutation; use `pnpm lint:fix` for explicit fixes.
-- Current suite: 42 Vitest files / 571 tests.
-- The pre-push hook runs lint, typecheck, coverage, production build, and the
-  built-auth E2E path against a local `auth_e2e` PostgreSQL database.
+- Current suite: 42 Vitest files / 568 tests.
+- The pre-push hook runs lint, typecheck, coverage, production build, the
+  disposable gated-registration DB integration against local `auth_ci`, and the
+  built-auth E2E path against local `auth_e2e`.
 - `pnpm e2e:built-auth` is guarded to refuse non-local databases; run it only
   with `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/auth_e2e`
   and a local built app already listening on port 3000.
