@@ -37,6 +37,7 @@ caught before pushing.
 | `scripts/built-auth-golden-path.ts` | Modified | Refuses non-local `auth_e2e` database targets before writing fixtures |
 | `scripts/gated-registration-db-integration.ts` | Modified | Makes local DB fixture timing and repeated runs deterministic |
 | `package.json` | Modified | Supplies the test-only admin-MFA keyring fixture for standalone DB integration runs |
+| `.husky/pre-push` | Modified | Defaults local PostgreSQL URLs to the current OS user while keeping override env vars |
 | `src/features/auth/server/invites/reuseEvidence.ts` | Modified | Gives durable invite-reuse audit writes a CI-safe Prisma transaction budget |
 | `tests/gated-registration-invites.test.ts` | Modified | Locks the hardened invite-reuse audit transaction budget |
 | `src/features/auth/server/outbox/db.ts`, `src/features/auth/server/outbox/maintenance.ts` | Modified | Normalize raw SQL `Date` comparisons with `AT TIME ZONE 'UTC'` |
@@ -66,6 +67,9 @@ caught before pushing.
 - The standalone `pnpm test:db:gated-registration` command must carry the same
   test-only admin-MFA keyring fixture as pre-push, otherwise it fails at the
   final stored-key readiness check despite the database behavior passing.
+- Local pre-push defaults use the Homebrew-friendly `$USER` PostgreSQL role;
+  `PRE_PUSH_DATABASE_ROLE` and the explicit URL variables remain available for
+  other local setups.
 - Raw SQL that compares Prisma `Date` parameters with PostgreSQL
   `timestamp without time zone` columns must normalize with `AT TIME ZONE 'UTC'`
   to avoid local timezone drift in cleanup and claim predicates.

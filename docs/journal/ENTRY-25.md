@@ -39,6 +39,11 @@ The standalone local DB command also failed once with
 the package script did not. The package script now carries the same local-only
 admin-MFA keyring fixture.
 
+Plain `git push` then failed in pre-push with Prisma `P1010` because the hook
+still defaulted database URLs to `postgres:postgres`, while the local Homebrew
+PostgreSQL role is the macOS user. The hook now defaults to `$USER` and still
+supports explicit URL overrides.
+
 ## Files Touched
 
 | File / Folder | Action | Notes |
@@ -49,6 +54,7 @@ admin-MFA keyring fixture.
 | `tests/gated-registration-security-verification.test.ts` | Modified | Uses committed packet/research evidence instead of ignored cursor-task files |
 | `package.json` | Modified | Added the test-only admin-MFA keyring fixture to the standalone DB integration command |
 | `.husky/pre-push` | Modified | Runs gated-registration DB integration on local `auth_ci` before built-auth E2E |
+| `.husky/pre-push` | Modified | Defaults local database URLs to the current OS user instead of `postgres:postgres` |
 | `scripts/built-auth-golden-path.ts` | Modified | Reports callback status and redirect location when credentials are rejected |
 | `scripts/built-auth-golden-path.ts` | Modified | Refuses remote/non-disposable database URLs before fixture writes |
 | `scripts/gated-registration-db-integration.ts` | Modified | Stabilized local PostgreSQL assertions, lookup hashes, and due outbox fixtures |
@@ -84,6 +90,9 @@ admin-MFA keyring fixture.
   with bounded Prisma wait/timeout settings.
 - Standalone DB integration commands should be self-contained for their local
   fixture env, especially when pre-push already depends on the same values.
+- Local pre-push defaults must match Homebrew PostgreSQL's common `$USER` role;
+  unusual local roles should use `PRE_PUSH_DATABASE_ROLE` or explicit URL
+  overrides.
 - Raw SQL comparing Prisma `Date` parameters to PostgreSQL
   `timestamp without time zone` columns must normalize parameters with
   `AT TIME ZONE 'UTC'` to avoid local timezone drift.
@@ -107,4 +116,6 @@ PRE_PUSH_ADMIN_DATABASE_URL="postgresql://manumurillo@localhost:5432/postgres" \
 PRE_PUSH_DB_TEST_DATABASE_URL="postgresql://manumurillo@localhost:5432/auth_ci" \
 PRE_PUSH_DATABASE_URL="postgresql://manumurillo@localhost:5432/auth_e2e" \
 .husky/pre-push                      # passed
+DATABASE_URL=postgresql://manumurillo@localhost:5432/auth_ci pnpm prisma:deploy  # passed
+DATABASE_URL=postgresql://manumurillo@localhost:5432/auth_e2e pnpm prisma:deploy # passed
 ```

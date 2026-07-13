@@ -54,6 +54,9 @@ This format follows [Conventional Commits](https://www.conventionalcommits.org/e
   fixture times to the script clock.
 - Added the test-only admin-MFA keyring fixture to `pnpm test:db:gated-registration`
   so the standalone local command matches the pre-push environment.
+- Changed the local pre-push PostgreSQL defaults to use the current OS user
+  (`postgresql://$USER@localhost:5432/...`) instead of assuming
+  `postgres:postgres`, while preserving explicit override env vars.
 - Hardened invite-reuse audit persistence by replacing the 50ms outer audit
   deadline with a larger Prisma transaction wait/timeout budget, preventing CI
   replay-loser audits from being reported as failed before the durable write can
